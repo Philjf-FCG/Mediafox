@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "MediaFox",
+  "project_id": "73cb4d51-9c86-450a-9d81-16311ef4ab53"
+}
