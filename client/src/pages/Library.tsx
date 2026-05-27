@@ -2,6 +2,8 @@ import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
 
 interface Asset { id: string; filename: string; mime_type: string; file_size: number; width: number | null; height: number | null; tags: string[]; created_at: string; url: string; }
+interface GoogleAlbum { id: string; title: string; mediaItemsCount?: string; }
+interface GoogleMediaItem { id: string; filename: string; mimeType?: string; baseUrl: string; }
 
 const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24, marginBottom: 20 };
 const input: React.CSSProperties = { background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 8, padding: '10px 14px', fontSize: 14 };
@@ -15,6 +17,19 @@ export default function Library() {
   const [tagInput, setTagInput] = useState('');
   const [uploading, setUploading] = useState(false);
   const [msg, setMsg] = useState('');
+  const [showGoogleImport, setShowGoogleImport] = useState(false);
+  const [googleToken, setGoogleToken] = useState('');
+  const [googleAlbums, setGoogleAlbums] = useState<GoogleAlbum[]>([]);
+  const [googleAlbumId, setGoogleAlbumId] = useState('');
+  const [googleItems, setGoogleItems] = useState<GoogleMediaItem[]>([]);
+  const [googleSelected, setGoogleSelected] = useState<Set<string>>(new Set());
+  const [loadingGoogle, setLoadingGoogle] = useState(false);
+  const [youtubeToken, setYoutubeToken] = useState('');
+  const [youtubeTitle, setYoutubeTitle] = useState('');
+  const [youtubeDescription, setYoutubeDescription] = useState('');
+  const [youtubeVisibility, setYoutubeVisibility] = useState<'private' | 'unlisted' | 'public'>('private');
+  const [youtubeShort, setYoutubeShort] = useState(false);
+  const [publishingYoutube, setPublishingYoutube] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = (search?: string) => {
@@ -37,6 +52,83 @@ export default function Library() {
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = ''; }
   };
 
+  const loadGoogleAlbums = async () => {
+    if (!googleToken.trim()) { setMsg('Google access token required'); return; }
+    setLoadingGoogle(true);
+    try {
+      const r = await api.post<{ albums: GoogleAlbum[] }>('/media/google-photos/albums', { access_token: googleToken.trim(), page_size: 25 });
+      setGoogleAlbums(r.data.albums || []);
+      if ((r.data.albums || []).length > 0) setGoogleAlbumId(r.data.albums[0].id);
+      setMsg('Loaded Google albums ✓');
+    } catch {
+      setMsg('Failed to load Google albums');
+    } finally {
+      setLoadingGoogle(false);
+    }
+  };
+
+  const loadGoogleItems = async () => {
+    if (!googleToken.trim()) { setMsg('Google access token required'); return; }
+    setLoadingGoogle(true);
+    try {
+      const r = await api.post<{ items: GoogleMediaItem[] }>('/media/google-photos/media-items', {
+        access_token: googleToken.trim(),
+        album_id: googleAlbumId || undefined,
+        page_size: 30,
+      });
+      setGoogleItems(r.data.items || []);
+      setGoogleSelected(new Set());
+      setMsg('Loaded Google media items ✓');
+    } catch {
+      setMsg('Failed to load Google media items');
+    } finally {
+      setLoadingGoogle(false);
+    }
+  };
+
+  const importGoogleSelected = async () => {
+    if (!googleToken.trim()) { setMsg('Google access token required'); return; }
+    const selectedItems = googleItems.filter(i => googleSelected.has(i.id));
+    if (selectedItems.length === 0) { setMsg('Select one or more Google Photos items'); return; }
+    setLoadingGoogle(true);
+    try {
+      const r = await api.post<{ imported_count: number; skipped_count: number }>('/media/google-photos/import', {
+        access_token: googleToken.trim(),
+        items: selectedItems,
+      });
+      setMsg(`Imported ${r.data.imported_count} item(s), skipped ${r.data.skipped_count}`);
+      setGoogleSelected(new Set());
+      load();
+    } catch {
+      setMsg('Google import failed');
+    } finally {
+      setLoadingGoogle(false);
+    }
+  };
+
+  const publishToYouTube = async () => {
+    if (!selected || !selected.id) return;
+    if (!selected.mime_type.startsWith('video/')) { setMsg('YouTube publishing requires a video asset'); return; }
+    if (!youtubeToken.trim()) { setMsg('YouTube access token required'); return; }
+    if (!youtubeTitle.trim()) { setMsg('YouTube title is required'); return; }
+    setPublishingYoutube(true);
+    try {
+      const r = await api.post<{ video_url: string }>('/youtube/publish', {
+        access_token: youtubeToken.trim(),
+        media_asset_id: selected.id,
+        title: youtubeTitle.trim(),
+        description: youtubeDescription.trim(),
+        visibility: youtubeVisibility,
+        is_short: youtubeShort,
+      });
+      setMsg(`YouTube publish started ✓ ${r.data.video_url}`);
+    } catch {
+      setMsg('YouTube publish failed');
+    } finally {
+      setPublishingYoutube(false);
+    }
+  };
+
   const deleteAsset = async (id: string) => {
     if (!confirm('Delete this file?')) return;
     await api.delete(`/media/${id}`).catch(() => {});
@@ -53,12 +145,57 @@ export default function Library() {
         <h1 style={{ fontSize: 24, fontWeight: 700 }}>Media Library</h1>
         <div style={{ display: 'flex', gap: 10 }}>
           <input style={{ ...input, width: 200 }} placeholder="Search…" value={q} onChange={e => { setQ(e.target.value); load(e.target.value || undefined); }} />
+          <button style={{ background: '#1d4ed8', border: 'none', color: '#fff', padding: '10px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => setShowGoogleImport(v => !v)}>
+            {showGoogleImport ? 'Hide Import' : 'Google Photos Import'}
+          </button>
           <button style={{ background: '#f97316', border: 'none', color: '#fff', padding: '10px 18px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => fileRef.current?.click()} disabled={uploading}>
             {uploading ? 'Uploading…' : '+ Upload'}
           </button>
           <input ref={fileRef} type="file" style={{ display: 'none' }} accept="image/*,.heic,.heif,video/mp4,video/quicktime,.mov" onChange={handleUpload} />
         </div>
       </div>
+
+      {showGoogleImport && (
+        <div style={card}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Import from Google Photos</h2>
+          <p style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>Paste a Google access token with Photos Library scope for this import session.</p>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <input style={{ ...input, flex: 1 }} placeholder="Google access token" value={googleToken} onChange={e => setGoogleToken(e.target.value)} />
+            <button style={{ background: '#334155', border: 'none', color: '#fff', padding: '10px 14px', borderRadius: 8, cursor: 'pointer' }} onClick={() => { void loadGoogleAlbums(); }} disabled={loadingGoogle}>Load Albums</button>
+            <button style={{ background: '#334155', border: 'none', color: '#fff', padding: '10px 14px', borderRadius: 8, cursor: 'pointer' }} onClick={() => { void loadGoogleItems(); }} disabled={loadingGoogle}>Load Items</button>
+          </div>
+          {googleAlbums.length > 0 && (
+            <select style={{ ...input, width: '100%', marginBottom: 10 }} value={googleAlbumId} onChange={e => setGoogleAlbumId(e.target.value)}>
+              {googleAlbums.map(a => <option key={a.id} value={a.id}>{a.title} {a.mediaItemsCount ? `(${a.mediaItemsCount})` : ''}</option>)}
+            </select>
+          )}
+          {googleItems.length > 0 && (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, marginBottom: 10 }}>
+                {googleItems.map(i => (
+                  <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0f1117', border: '1px solid #2d3748', borderRadius: 8, padding: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={googleSelected.has(i.id)}
+                      onChange={e => {
+                        setGoogleSelected(prev => {
+                          const s = new Set(prev);
+                          if (e.target.checked) s.add(i.id); else s.delete(i.id);
+                          return s;
+                        });
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.filename}</span>
+                  </label>
+                ))}
+              </div>
+              <button style={{ background: '#16a34a', border: 'none', color: '#fff', padding: '9px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => { void importGoogleSelected(); }} disabled={loadingGoogle}>
+                Import Selected ({googleSelected.size})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {msg && <p style={{ color: msg.includes('✓') ? '#22c55e' : '#ef4444', marginBottom: 16, fontSize: 14 }}>{msg}</p>}
 
@@ -140,6 +277,28 @@ export default function Library() {
               <a href={`/api${selected.url}`} download={selected.filename} style={{ background: '#2d3748', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontSize: 13 }}>Download</a>
               <button style={{ background: '#2d3748', border: 'none', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }} onClick={() => setSelected(null)}>Close</button>
             </div>
+
+            {selected.mime_type.startsWith('video/') && (
+              <div style={{ marginTop: 16, borderTop: '1px solid #2d3748', paddingTop: 14 }}>
+                <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Publish to YouTube</h4>
+                <input style={{ ...input, width: '100%', marginBottom: 8 }} placeholder="YouTube access token" value={youtubeToken} onChange={e => setYoutubeToken(e.target.value)} />
+                <input style={{ ...input, width: '100%', marginBottom: 8 }} placeholder="Video title" value={youtubeTitle} onChange={e => setYoutubeTitle(e.target.value)} />
+                <input style={{ ...input, width: '100%', marginBottom: 8 }} placeholder="Description (optional)" value={youtubeDescription} onChange={e => setYoutubeDescription(e.target.value)} />
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <select style={{ ...input, width: 150 }} value={youtubeVisibility} onChange={e => setYoutubeVisibility(e.target.value as 'private' | 'unlisted' | 'public')}>
+                    <option value="private">Private</option>
+                    <option value="unlisted">Unlisted</option>
+                    <option value="public">Public</option>
+                  </select>
+                  <label style={{ color: '#94a3b8', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <input type="checkbox" checked={youtubeShort} onChange={e => setYoutubeShort(e.target.checked)} /> Mark as Shorts intent
+                  </label>
+                </div>
+                <button style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '8px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => { void publishToYouTube(); }} disabled={publishingYoutube}>
+                  {publishingYoutube ? 'Publishing…' : 'Publish Video'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

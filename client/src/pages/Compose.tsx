@@ -39,6 +39,10 @@ export default function Compose() {
   const [postType, setPostType] = useState<'company' | 'personal'>('company');
   const [status, setStatus] = useState('');
   const [saving, setSaving] = useState(false);
+  const [lastPostId, setLastPostId] = useState<string | null>(null);
+  const [tiktokCaption, setTiktokCaption] = useState('');
+  const [tiktokNote, setTiktokNote] = useState('');
+  const [tiktokSubmitting, setTiktokSubmitting] = useState(false);
   const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
   const previewDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -101,7 +105,9 @@ export default function Compose() {
     if (!selected.size) { setStatus('Select at least one account'); return; }
     setSaving(true);
     try {
-      await api.post('/posts', { title: body.slice(0, 50), variants: buildVariants() });
+      const r = await api.post<{ post: { id: string } }>('/posts', { title: body.slice(0, 50), variants: buildVariants() });
+      setLastPostId(r.data.post.id);
+      setTiktokCaption(body);
       setStatus('Draft saved ✓');
       setBody(''); setSelected(new Set()); setVariants({});
     } catch { setStatus('Save failed'); }
@@ -113,6 +119,8 @@ export default function Compose() {
     setSaving(true);
     try {
       const res = await api.post<{ post: { id: string } }>('/posts', { title: body.slice(0, 50), variants: buildVariants() });
+      setLastPostId(res.data.post.id);
+      setTiktokCaption(body);
       if (scheduledAt) {
         await api.post(`/posts/${res.data.post.id}/schedule`, { scheduled_at: scheduledAt });
         setStatus(`Scheduled for ${new Date(scheduledAt).toLocaleString()} ✓`);
@@ -127,6 +135,24 @@ export default function Compose() {
     }
     finally { setSaving(false); }
   }, [selected, body, variants, perVariant, scheduledAt]);
+
+  const createTikTokAssist = useCallback(async () => {
+    if (!lastPostId) { setStatus('Create a post first'); return; }
+    if (!tiktokCaption.trim()) { setStatus('TikTok caption is required'); return; }
+    setTiktokSubmitting(true);
+    try {
+      await api.post(`/posts/${lastPostId}/tiktok-assists`, {
+        caption: tiktokCaption.trim(),
+        handoff_note: tiktokNote.trim() || undefined,
+      });
+      setStatus('TikTok handoff created ✓');
+      setTiktokNote('');
+    } catch {
+      setStatus('Failed to create TikTok handoff');
+    } finally {
+      setTiktokSubmitting(false);
+    }
+  }, [lastPostId, tiktokCaption, tiktokNote]);
 
   const selectedAccounts = accounts.filter(a => selected.has(a.id));
 
@@ -267,6 +293,20 @@ export default function Compose() {
           {scheduledAt ? 'Schedule' : 'Publish Now'}
         </button>
       </div>
+
+      {lastPostId && (
+        <div style={{ ...card, marginTop: 20 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>TikTok Assisted Handoff</h2>
+          <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Create a handoff task for manual TikTok Business publish and track completion URL later.</p>
+          <span style={label}>Caption</span>
+          <textarea style={{ ...textarea, minHeight: 90, marginBottom: 10 }} value={tiktokCaption} onChange={e => setTiktokCaption(e.target.value)} placeholder="TikTok caption" />
+          <span style={label}>Handoff note (optional)</span>
+          <input style={{ ...input, marginBottom: 10 }} value={tiktokNote} onChange={e => setTiktokNote(e.target.value)} placeholder="Who should publish, timing, CTA, etc." />
+          <button style={{ ...btn(true), background: '#111827' }} onClick={() => { void createTikTokAssist(); }} disabled={tiktokSubmitting}>
+            {tiktokSubmitting ? 'Creating…' : 'Create TikTok Handoff'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
