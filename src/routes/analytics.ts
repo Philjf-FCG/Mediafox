@@ -3,6 +3,81 @@ import { getDb } from '../utils/db';
 
 const router = Router();
 
+router.get('/campaigns', (req: Request, res: Response) => {
+  const { from, to } = req.query as { from?: string; to?: string };
+  const db = getDb();
+
+  const rows = db.prepare(`
+    SELECT
+      CASE
+        WHEN p.title IS NULL OR trim(p.title) = '' THEN 'untitled'
+        WHEN instr(p.title, ':') > 0 THEN lower(trim(substr(p.title, 1, instr(p.title, ':') - 1)))
+        ELSE lower(trim(p.title))
+      END AS campaign_key,
+      a.platform AS platform,
+      COUNT(pv.id) AS published_variants,
+      SUM(COALESCE(pa.likes, 0)) AS likes,
+      SUM(COALESCE(pa.comments, 0)) AS comments,
+      SUM(COALESCE(pa.shares, 0)) AS shares,
+      SUM(COALESCE(pa.impressions, 0)) AS impressions,
+      SUM(COALESCE(pa.reach, 0)) AS reach,
+      SUM(COALESCE(pa.clicks, 0)) AS clicks
+    FROM posts p
+    JOIN post_variants pv ON pv.post_id = p.id
+    JOIN accounts a ON a.id = pv.account_id
+    LEFT JOIN post_analytics pa ON pa.post_variant_id = pv.id
+    WHERE p.studio_id = ?
+      AND pv.status = 'published'
+      ${from ? "AND p.published_at >= ?" : ""}
+      ${to   ? "AND p.published_at <= ?" : ""}
+    GROUP BY campaign_key, a.platform
+  `).all(...([req.studioId, ...(from ? [from] : []), ...(to ? [to] : [])])) as Array<{
+    campaign_key: string;
+    platform: string;
+    published_variants: number;
+    likes: number;
+    comments: number;
+    shares: number;
+    impressions: number;
+    reach: number;
+    clicks: number;
+  }>;
+
+  const campaigns: Record<string, {
+    campaign: string;
+    published_variants: number;
+    engagement: { likes: number; comments: number; shares: number; impressions: number; reach: number; clicks: number };
+    by_platform: Record<string, number>;
+  }> = {};
+
+  for (const row of rows) {
+    const key = row.campaign_key || 'untitled';
+    if (!campaigns[key]) {
+      campaigns[key] = {
+        campaign: key,
+        published_variants: 0,
+        engagement: { likes: 0, comments: 0, shares: 0, impressions: 0, reach: 0, clicks: 0 },
+        by_platform: {},
+      };
+    }
+
+    campaigns[key].published_variants += row.published_variants ?? 0;
+    campaigns[key].engagement.likes += row.likes ?? 0;
+    campaigns[key].engagement.comments += row.comments ?? 0;
+    campaigns[key].engagement.shares += row.shares ?? 0;
+    campaigns[key].engagement.impressions += row.impressions ?? 0;
+    campaigns[key].engagement.reach += row.reach ?? 0;
+    campaigns[key].engagement.clicks += row.clicks ?? 0;
+    campaigns[key].by_platform[row.platform] = (campaigns[key].by_platform[row.platform] ?? 0) + (row.published_variants ?? 0);
+  }
+
+  const items = Object.values(campaigns)
+    .sort((a, b) => b.engagement.impressions - a.engagement.impressions)
+    .slice(0, 50);
+
+  res.json({ campaigns: items, count: items.length });
+});
+
 router.get('/overview', (req: Request, res: Response) => {
   const { from, to } = req.query as { from?: string; to?: string };
   const db = getDb();

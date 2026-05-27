@@ -5,6 +5,12 @@ interface Engagement { likes: number; comments: number; shares: number; impressi
 interface Overview { total_published: number; by_platform: Record<string, number>; posts: unknown[]; engagement: Engagement; }
 interface Account { id: string; platform: string; display_name: string; }
 interface PostVariant { id: string; post_id: string; account_id: string; platform: string; display_name: string; platform_post_id: string | null; published_at: string | null; likes?: number; comments?: number; shares?: number; impressions?: number; reach?: number; synced_at?: string; }
+interface CampaignRollup {
+  campaign: string;
+  published_variants: number;
+  engagement: { likes: number; comments: number; shares: number; impressions: number; reach: number; clicks: number };
+  by_platform: Record<string, number>;
+}
 
 const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24, marginBottom: 20 };
 const COLORS: Record<string, string> = {
@@ -25,6 +31,7 @@ export default function Analytics() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
   const [acctVariants, setAcctVariants] = useState<PostVariant[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignRollup[]>([]);
 
   useEffect(() => {
     api.get<{ accounts: Account[] }>('/accounts').then(r => setAccounts(r.data.accounts)).catch(() => {});
@@ -35,6 +42,9 @@ export default function Analytics() {
     const from = new Date(); from.setDate(from.getDate() - days);
     api.get<Overview>('/analytics/overview', { params: { from: from.toISOString(), to: to.toISOString() } })
       .then(r => setOverview(r.data)).catch(() => {});
+
+    api.get<{ campaigns: CampaignRollup[] }>('/analytics/campaigns', { params: { from: from.toISOString(), to: to.toISOString() } })
+      .then(r => setCampaigns(r.data.campaigns || [])).catch(() => setCampaigns([]));
   }, [days]);
 
   useEffect(() => {
@@ -134,6 +144,34 @@ export default function Analytics() {
             </table>
           )}
           {selectedAccount && acctVariants.length === 0 && <p style={{ color: '#64748b', fontSize: 14 }}>No published posts in this range for this account.</p>}
+        </div>
+      )}
+
+      {campaigns.length > 0 && (
+        <div style={card}>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Campaign Attribution</h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ color: '#64748b', borderBottom: '1px solid #2d3748' }}>
+                <th style={{ textAlign: 'left', padding: '6px 0' }}>Campaign</th>
+                <th style={{ textAlign: 'right', padding: '6px 0' }}>Posts</th>
+                <th style={{ textAlign: 'right', padding: '6px 0' }}>Impressions</th>
+                <th style={{ textAlign: 'right', padding: '6px 0' }}>Reach</th>
+                <th style={{ textAlign: 'right', padding: '6px 0' }}>Clicks</th>
+              </tr>
+            </thead>
+            <tbody>
+              {campaigns.slice(0, 12).map(c => (
+                <tr key={c.campaign} style={{ borderBottom: '1px solid #2d374850' }}>
+                  <td style={{ padding: '8px 0', color: '#e2e8f0' }}>{c.campaign}</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{c.published_variants}</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{c.engagement.impressions.toLocaleString()}</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{c.engagement.reach.toLocaleString()}</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{c.engagement.clicks.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
