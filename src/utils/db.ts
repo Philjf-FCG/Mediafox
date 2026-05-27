@@ -106,6 +106,9 @@ const migrate = (db: Database.Database): void => {
       height           INTEGER,
       duration_s       REAL,
       tags             TEXT NOT NULL DEFAULT '[]',
+      source_provider  TEXT,
+      source_id        TEXT,
+      source_hash      TEXT,
       archived_at      TEXT,
       archived_by      TEXT,
       created_at       TEXT NOT NULL DEFAULT (datetime('now'))
@@ -217,6 +220,8 @@ const migrate = (db: Database.Database): void => {
     CREATE INDEX IF NOT EXISTS idx_inbox_archived  ON inbox_items(studio_id, archived_at);
     CREATE INDEX IF NOT EXISTS idx_accounts_studio ON accounts(studio_id);
     CREATE INDEX IF NOT EXISTS idx_media_archived  ON media_assets(studio_id, archived_at);
+    CREATE INDEX IF NOT EXISTS idx_media_source    ON media_assets(studio_id, source_provider, source_id);
+    CREATE INDEX IF NOT EXISTS idx_media_hash      ON media_assets(studio_id, source_hash);
     CREATE TABLE IF NOT EXISTS studio_plans (
       studio_id     TEXT PRIMARY KEY,
       plan          TEXT NOT NULL DEFAULT 'pro',
@@ -246,6 +251,9 @@ const migrate = (db: Database.Database): void => {
   ensureColumn(db, 'posts', 'archived_by', 'TEXT');
   ensureColumn(db, 'media_assets', 'archived_at', 'TEXT');
   ensureColumn(db, 'media_assets', 'archived_by', 'TEXT');
+  ensureColumn(db, 'media_assets', 'source_provider', 'TEXT');
+  ensureColumn(db, 'media_assets', 'source_id', 'TEXT');
+  ensureColumn(db, 'media_assets', 'source_hash', 'TEXT');
   ensureColumn(db, 'inbox_items', 'archived_at', 'TEXT');
   ensureColumn(db, 'inbox_items', 'archived_by', 'TEXT');
 };
@@ -473,12 +481,23 @@ export interface MediaAsset {
   id: string; studio_id: string; uploaded_by: string; filename: string;
   mime_type: string; file_size: number; storage_path: string;
   width: number | null; height: number | null; duration_s: number | null;
-  tags: string; archived_at: string | null; archived_by: string | null; created_at: string;
+  tags: string;
+  source_provider: string | null;
+  source_id: string | null;
+  source_hash: string | null;
+  archived_at: string | null;
+  archived_by: string | null;
+  created_at: string;
 }
 
-export const createMediaAsset = (a: Pick<MediaAsset, 'id' | 'studio_id' | 'uploaded_by' | 'filename' | 'mime_type' | 'file_size' | 'storage_path' | 'width' | 'height' | 'duration_s' | 'tags'>): MediaAsset => {
-  getDb().prepare(`INSERT INTO media_assets (id,studio_id,uploaded_by,filename,mime_type,file_size,storage_path,width,height,duration_s,tags)
-    VALUES (@id,@studio_id,@uploaded_by,@filename,@mime_type,@file_size,@storage_path,@width,@height,@duration_s,@tags)`).run(a);
+export const createMediaAsset = (a: Pick<MediaAsset, 'id' | 'studio_id' | 'uploaded_by' | 'filename' | 'mime_type' | 'file_size' | 'storage_path' | 'width' | 'height' | 'duration_s' | 'tags'> & Partial<Pick<MediaAsset, 'source_provider' | 'source_id' | 'source_hash'>>): MediaAsset => {
+  getDb().prepare(`INSERT INTO media_assets (id,studio_id,uploaded_by,filename,mime_type,file_size,storage_path,width,height,duration_s,tags,source_provider,source_id,source_hash)
+    VALUES (@id,@studio_id,@uploaded_by,@filename,@mime_type,@file_size,@storage_path,@width,@height,@duration_s,@tags,@source_provider,@source_id,@source_hash)`).run({
+    ...a,
+    source_provider: a.source_provider ?? null,
+    source_id: a.source_id ?? null,
+    source_hash: a.source_hash ?? null,
+  });
   return getDb().prepare('SELECT * FROM media_assets WHERE id=?').get(a.id) as MediaAsset;
 };
 
@@ -502,6 +521,12 @@ export const archiveMediaAsset = (id: string, actorId: string): void => {
 export const restoreMediaAsset = (id: string): void => {
   getDb().prepare("UPDATE media_assets SET archived_at=NULL, archived_by=NULL WHERE id=?").run(id);
 };
+
+export const getMediaAssetBySource = (studioId: string, provider: string, sourceId: string): MediaAsset | null =>
+  (getDb().prepare('SELECT * FROM media_assets WHERE studio_id=? AND source_provider=? AND source_id=? LIMIT 1').get(studioId, provider, sourceId) as MediaAsset | undefined) ?? null;
+
+export const getMediaAssetByHash = (studioId: string, sourceHash: string): MediaAsset | null =>
+  (getDb().prepare('SELECT * FROM media_assets WHERE studio_id=? AND source_hash=? LIMIT 1').get(studioId, sourceHash) as MediaAsset | undefined) ?? null;
 
 export interface ArchivePurgeResult {
   postsDeleted: number;

@@ -3,8 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.purgeArchivedContentOlderThan = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
-exports.audit = void 0;
+exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.purgeArchivedContentOlderThan = exports.getMediaAssetByHash = exports.getMediaAssetBySource = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
+exports.audit = exports.updateUser = exports.createUser = void 0;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -112,6 +112,9 @@ const migrate = (db) => {
       height           INTEGER,
       duration_s       REAL,
       tags             TEXT NOT NULL DEFAULT '[]',
+      source_provider  TEXT,
+      source_id        TEXT,
+      source_hash      TEXT,
       archived_at      TEXT,
       archived_by      TEXT,
       created_at       TEXT NOT NULL DEFAULT (datetime('now'))
@@ -223,6 +226,8 @@ const migrate = (db) => {
     CREATE INDEX IF NOT EXISTS idx_inbox_archived  ON inbox_items(studio_id, archived_at);
     CREATE INDEX IF NOT EXISTS idx_accounts_studio ON accounts(studio_id);
     CREATE INDEX IF NOT EXISTS idx_media_archived  ON media_assets(studio_id, archived_at);
+    CREATE INDEX IF NOT EXISTS idx_media_source    ON media_assets(studio_id, source_provider, source_id);
+    CREATE INDEX IF NOT EXISTS idx_media_hash      ON media_assets(studio_id, source_hash);
     CREATE TABLE IF NOT EXISTS studio_plans (
       studio_id     TEXT PRIMARY KEY,
       plan          TEXT NOT NULL DEFAULT 'pro',
@@ -251,6 +256,9 @@ const migrate = (db) => {
     ensureColumn(db, 'posts', 'archived_by', 'TEXT');
     ensureColumn(db, 'media_assets', 'archived_at', 'TEXT');
     ensureColumn(db, 'media_assets', 'archived_by', 'TEXT');
+    ensureColumn(db, 'media_assets', 'source_provider', 'TEXT');
+    ensureColumn(db, 'media_assets', 'source_id', 'TEXT');
+    ensureColumn(db, 'media_assets', 'source_hash', 'TEXT');
     ensureColumn(db, 'inbox_items', 'archived_at', 'TEXT');
     ensureColumn(db, 'inbox_items', 'archived_by', 'TEXT');
 };
@@ -410,8 +418,13 @@ const restoreInboxItem = (id) => {
 };
 exports.restoreInboxItem = restoreInboxItem;
 const createMediaAsset = (a) => {
-    (0, exports.getDb)().prepare(`INSERT INTO media_assets (id,studio_id,uploaded_by,filename,mime_type,file_size,storage_path,width,height,duration_s,tags)
-    VALUES (@id,@studio_id,@uploaded_by,@filename,@mime_type,@file_size,@storage_path,@width,@height,@duration_s,@tags)`).run(a);
+    (0, exports.getDb)().prepare(`INSERT INTO media_assets (id,studio_id,uploaded_by,filename,mime_type,file_size,storage_path,width,height,duration_s,tags,source_provider,source_id,source_hash)
+    VALUES (@id,@studio_id,@uploaded_by,@filename,@mime_type,@file_size,@storage_path,@width,@height,@duration_s,@tags,@source_provider,@source_id,@source_hash)`).run({
+        ...a,
+        source_provider: a.source_provider ?? null,
+        source_id: a.source_id ?? null,
+        source_hash: a.source_hash ?? null,
+    });
     return (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE id=?').get(a.id);
 };
 exports.createMediaAsset = createMediaAsset;
@@ -438,6 +451,10 @@ const restoreMediaAsset = (id) => {
     (0, exports.getDb)().prepare("UPDATE media_assets SET archived_at=NULL, archived_by=NULL WHERE id=?").run(id);
 };
 exports.restoreMediaAsset = restoreMediaAsset;
+const getMediaAssetBySource = (studioId, provider, sourceId) => (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? AND source_provider=? AND source_id=? LIMIT 1').get(studioId, provider, sourceId) ?? null;
+exports.getMediaAssetBySource = getMediaAssetBySource;
+const getMediaAssetByHash = (studioId, sourceHash) => (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? AND source_hash=? LIMIT 1').get(studioId, sourceHash) ?? null;
+exports.getMediaAssetByHash = getMediaAssetByHash;
 const purgeArchivedContentOlderThan = (cutoffIso) => {
     const db = (0, exports.getDb)();
     const mediaRows = db.prepare("SELECT id, storage_path FROM media_assets WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)").all(cutoffIso);

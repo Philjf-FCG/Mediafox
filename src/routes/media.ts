@@ -2,11 +2,26 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import axios from 'axios';
 import { lookup } from 'dns/promises';
 import net from 'net';
 import { v4 as uuidv4 } from 'uuid';
-import { createMediaAsset, getMediaAssets, archiveMediaAsset, restoreMediaAsset, getDb } from '../utils/db';
+import {
+  createMediaAsset,
+  getMediaAssets,
+  archiveMediaAsset,
+  restoreMediaAsset,
+  getMediaAssetByHash,
+  getMediaAssetBySource,
+  getDb,
+} from '../utils/db';
+import {
+  downloadGooglePhotosItem,
+  listGooglePhotosAlbums,
+  listGooglePhotosMediaItems,
+  GooglePhotosMediaItem,
+} from '../adapters/googlePhotos';
 
 const STORAGE_PATH = () => process.env.MEDIA_STORAGE_PATH ?? path.join(process.cwd(), 'media');
 
@@ -39,6 +54,20 @@ const upload = multer({
 });
 
 const router = Router();
+const GOOGLE_PROVIDER = 'google_photos';
+const GOOGLE_IMPORT_MAX_ITEMS = Math.max(1, Number(process.env.GOOGLE_PHOTOS_IMPORT_MAX_ITEMS ?? '50'));
+const GOOGLE_LIST_MAX_ITEMS = 100;
+const ALLOWED_IMPORT_MIME = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+  'video/mp4',
+  'video/quicktime',
+  'application/pdf',
+]);
 
 const BLOCKED_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1', '0.0.0.0']);
 
@@ -115,6 +144,19 @@ const ensureSafePreviewTarget = async (rawUrl: string): Promise<URL | null> => {
   return parsed;
 };
 
+const readGoogleAccessToken = (req: Request): string | null => {
+  const fromBody = typeof req.body?.access_token === 'string' ? req.body.access_token : null;
+  const fromHeader = typeof req.headers['x-google-photos-token'] === 'string' ? req.headers['x-google-photos-token'] : null;
+  const token = (fromBody || fromHeader || '').trim();
+  return token || null;
+};
+
+const parseDim = (v: string | undefined): number | null => {
+  if (!v) return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+};
+
 router.get('/', (req: Request, res: Response) => {
   const { q, include_archived } = req.query as { q?: string; include_archived?: string };
   const includeArchived = include_archived === '1' || include_archived === 'true';
@@ -123,6 +165,116 @@ router.get('/', (req: Request, res: Response) => {
     url: `/api/media/${a.id}/file`,
   }));
   res.json({ assets });
+});
+
+router.post('/google-photos/albums', async (req: Request, res: Response) => {
+  const accessToken = readGoogleAccessToken(req);
+  if (!accessToken) { res.status(400).json({ error: 'access_token is required' }); return; }
+
+  const pageSizeRaw = Number(req.body?.page_size ?? 25);
+  const pageSize = Math.min(Math.max(Number.isFinite(pageSizeRaw) ? pageSizeRaw : 25, 1), 50);
+  const pageToken = typeof req.body?.page_token === 'string' ? req.body.page_token : undefined;
+
+  try {
+    const data = await listGooglePhotosAlbums(accessToken, pageSize, pageToken);
+    res.json(data);
+  } catch (err: unknown) {
+    const detail = (err as { response?: { data?: unknown } })?.response?.data;
+    res.status(502).json({ error: 'Failed to list Google Photos albums', detail: detail ?? String(err) });
+  }
+});
+
+router.post('/google-photos/media-items', async (req: Request, res: Response) => {
+  const accessToken = readGoogleAccessToken(req);
+  if (!accessToken) { res.status(400).json({ error: 'access_token is required' }); return; }
+
+  const albumId = typeof req.body?.album_id === 'string' ? req.body.album_id : undefined;
+  const pageToken = typeof req.body?.page_token === 'string' ? req.body.page_token : undefined;
+  const pageSizeRaw = Number(req.body?.page_size ?? 25);
+  const pageSize = Math.min(Math.max(Number.isFinite(pageSizeRaw) ? pageSizeRaw : 25, 1), GOOGLE_LIST_MAX_ITEMS);
+
+  try {
+    const data = await listGooglePhotosMediaItems(accessToken, { albumId, pageToken, pageSize });
+    res.json(data);
+  } catch (err: unknown) {
+    const detail = (err as { response?: { data?: unknown } })?.response?.data;
+    res.status(502).json({ error: 'Failed to list Google Photos media items', detail: detail ?? String(err) });
+  }
+});
+
+router.post('/google-photos/import', async (req: Request, res: Response) => {
+  const accessToken = readGoogleAccessToken(req);
+  if (!accessToken) { res.status(400).json({ error: 'access_token is required' }); return; }
+
+  const items = Array.isArray(req.body?.items) ? req.body.items as GooglePhotosMediaItem[] : [];
+  if (items.length === 0) { res.status(400).json({ error: 'items array is required' }); return; }
+
+  const selected = items.slice(0, GOOGLE_IMPORT_MAX_ITEMS);
+  const imported: Array<{ id: string; filename: string }> = [];
+  const skipped: Array<{ item_id: string; reason: string }> = [];
+
+  for (const item of selected) {
+    const sourceId = String(item?.id || '').trim();
+    const fileName = String(item?.filename || '').trim() || `google-photo-${Date.now()}`;
+    const mimeType = String(item?.mimeType || '').trim().toLowerCase();
+
+    if (!sourceId || !item?.baseUrl) {
+      skipped.push({ item_id: sourceId || 'unknown', reason: 'invalid_item' });
+      continue;
+    }
+    if (!mimeType || !ALLOWED_IMPORT_MIME.has(mimeType)) {
+      skipped.push({ item_id: sourceId, reason: `unsupported_mime:${mimeType || 'unknown'}` });
+      continue;
+    }
+    if (getMediaAssetBySource(req.studioId!, GOOGLE_PROVIDER, sourceId)) {
+      skipped.push({ item_id: sourceId, reason: 'duplicate_source' });
+      continue;
+    }
+
+    try {
+      const bytes = await downloadGooglePhotosItem(accessToken, item);
+      const hash = crypto.createHash('sha256').update(bytes).digest('hex');
+      if (getMediaAssetByHash(req.studioId!, hash)) {
+        skipped.push({ item_id: sourceId, reason: 'duplicate_hash' });
+        continue;
+      }
+
+      const id = uuidv4();
+      const storageName = uuidv4();
+      fs.mkdirSync(STORAGE_PATH(), { recursive: true });
+      fs.writeFileSync(path.join(STORAGE_PATH(), storageName), bytes);
+
+      const created = createMediaAsset({
+        id,
+        studio_id: req.studioId!,
+        uploaded_by: req.mediafoxUser!.userId,
+        filename: fileName,
+        mime_type: mimeType,
+        file_size: bytes.length,
+        storage_path: storageName,
+        width: parseDim(item.mediaMetadata?.width),
+        height: parseDim(item.mediaMetadata?.height),
+        duration_s: null,
+        tags: JSON.stringify(['google-photos']),
+        source_provider: GOOGLE_PROVIDER,
+        source_id: sourceId,
+        source_hash: hash,
+      });
+
+      imported.push({ id: created.id, filename: created.filename });
+    } catch (err: unknown) {
+      skipped.push({ item_id: sourceId, reason: String((err as Error)?.message || 'import_failed') });
+    }
+  }
+
+  res.json({
+    imported,
+    skipped,
+    imported_count: imported.length,
+    skipped_count: skipped.length,
+    capped: items.length > selected.length,
+    cap: GOOGLE_IMPORT_MAX_ITEMS,
+  });
 });
 
 router.post('/', upload.single('file'), async (req: Request, res: Response) => {

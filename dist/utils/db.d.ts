@@ -118,15 +118,20 @@ export interface MediaAsset {
     height: number | null;
     duration_s: number | null;
     tags: string;
+    source_provider: string | null;
+    source_id: string | null;
+    source_hash: string | null;
     archived_at: string | null;
     archived_by: string | null;
     created_at: string;
 }
-export declare const createMediaAsset: (a: Pick<MediaAsset, "id" | "studio_id" | "uploaded_by" | "filename" | "mime_type" | "file_size" | "storage_path" | "width" | "height" | "duration_s" | "tags">) => MediaAsset;
+export declare const createMediaAsset: (a: Pick<MediaAsset, "id" | "studio_id" | "uploaded_by" | "filename" | "mime_type" | "file_size" | "storage_path" | "width" | "height" | "duration_s" | "tags"> & Partial<Pick<MediaAsset, "source_provider" | "source_id" | "source_hash">>) => MediaAsset;
 export declare const getMediaAssets: (studioId: string, q?: string, includeArchived?: boolean) => MediaAsset[];
 export declare const deleteMediaAsset: (id: string) => void;
 export declare const archiveMediaAsset: (id: string, actorId: string) => void;
 export declare const restoreMediaAsset: (id: string) => void;
+export declare const getMediaAssetBySource: (studioId: string, provider: string, sourceId: string) => MediaAsset | null;
+export declare const getMediaAssetByHash: (studioId: string, sourceHash: string) => MediaAsset | null;
 export interface ArchivePurgeResult {
     postsDeleted: number;
     inboxDeleted: number;
