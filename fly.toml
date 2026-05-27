@@ -1,31 +1,38 @@
-app = "fox-mediafox"
-primary_region = "lhr"
+# fly.toml app configuration file generated for mediafox on 2026-05-27T07:57:51Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'mediafox'
+primary_region = 'lhr'
 
 [build]
   dockerfile = "Dockerfile"
   [build.args]
-    GOOGLE_CLIENT_ID = "407954380639-r8mepvvq7772d8eaf00s09vo7stdomo1.apps.googleusercontent.com"
+    VITE_GOOGLE_CLIENT_ID = "407954380639-r8mepvvq7772d8eaf00s09vo7stdomo1.apps.googleusercontent.com"
+
 
 [env]
-  PORT = "5004"
-  NODE_ENV = "production"
-  DATABASE_PATH = "/opt/data/mediafox.db"
-  MEDIA_STORAGE_PATH = "/opt/data/media"
-  AUTH_ADMIN_EMAILS = "philjfoxton@googlemail.com"
+  AUTH_ADMIN_EMAILS = 'philjfoxton@googlemail.com'
+  DATABASE_PATH = '/opt/data/mediafox.db'
+  MEDIA_STORAGE_PATH = '/opt/data/media'
+  NODE_ENV = 'production'
+  PORT = '5004'
+
+[[mounts]]
+  source = 'mediafox_data'
+  destination = '/opt/data'
 
 [http_service]
   internal_port = 5004
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-  processes = ["app"]
+  processes = ['app']
 
 [[vm]]
-  memory = "512mb"
-  cpu_kind = "shared"
+  memory = '512mb'
+  cpu_kind = 'shared'
   cpus = 1
-
-[[mounts]]
-  source = "mediafox_data"
-  destination = "/opt/data"
+  memory_mb = 512
