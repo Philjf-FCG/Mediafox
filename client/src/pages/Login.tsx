@@ -19,6 +19,8 @@ interface Props {
   onAuthenticated: () => Promise<void>;
 }
 
+const DEFAULT_GOOGLE_CLIENT_ID = '407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com';
+
 const styles = {
   page:    { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #161b27 0%, #0f2027 100%)', padding: 20 } as React.CSSProperties,
   card:    { background: '#1e2433', border: '1px solid #2d3748', padding: '40px', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.4)', maxWidth: 420, width: '100%', textAlign: 'center' as const },
@@ -33,7 +35,7 @@ const styles = {
 };
 
 export default function Login({ authEnabled, onAuthenticated }: Props) {
-  const googleClientId = (import.meta as unknown as { env: Record<string, string> }).env.VITE_GOOGLE_CLIENT_ID || '';
+  const googleClientId = (import.meta as unknown as { env: Record<string, string> }).env.VITE_GOOGLE_CLIENT_ID || DEFAULT_GOOGLE_CLIENT_ID;
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
@@ -65,11 +67,12 @@ export default function Login({ authEnabled, onAuthenticated }: Props) {
         setStatus('Access granted. Loading MediaFox...');
         await onAuthenticated();
       } catch (err: unknown) {
-        const res = (err as { response?: { data?: { status?: string; error?: string } } })?.response;
+        const res = (err as { response?: { data?: { status?: string; error?: string; detail?: string } } })?.response;
         if (!res) { setError('Cannot reach MediaFox API.'); setStatus(''); return; }
         if (res.data?.status === 'pending') { setStatus('Access request submitted. An admin will approve your account.'); setError(''); return; }
         if (res.data?.status === 'denied') { setError('Access was denied by an admin.'); setStatus(''); return; }
-        setError(res.data?.error || 'Google login failed.');
+        const detail = res.data?.detail ? ` ${res.data.detail}` : '';
+        setError(`${res.data?.error || 'Google login failed.'}${detail}`);
         setStatus('');
       }
     };

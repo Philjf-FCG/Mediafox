@@ -18,7 +18,9 @@ const parseList = (raw) => raw
     .split(',')
     .map(v => v.trim())
     .filter(Boolean);
+const DEFAULT_GOOGLE_CLIENT_ID = '407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com';
 const GOOGLE_CLIENT_IDS = Array.from(new Set([
+    DEFAULT_GOOGLE_CLIENT_ID,
     ...parseList(process.env.GOOGLE_CLIENT_IDS || ''),
     ...(process.env.GOOGLE_CLIENT_ID ? [process.env.GOOGLE_CLIENT_ID.trim()] : []),
 ])).filter(Boolean);
