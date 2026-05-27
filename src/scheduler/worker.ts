@@ -3,6 +3,7 @@ import { processDueItems } from './queue';
 import { refreshExpiringTokens } from './tokenRefresh';
 import { pollAllInboxes } from './inboxPollers';
 import { syncAnalytics } from './analyticsSync';
+import { purgeArchivedContent } from './archiveRetention';
 
 let running = false;
 
@@ -47,5 +48,14 @@ export const startWorker = (): void => {
     }
   });
 
-  console.log('[scheduler] worker started — queue: 1min, inbox: 15min, analytics: 6hr, token refresh: daily 03:00');
+  // Archive retention purge — daily at 04:00
+  cron.schedule('0 4 * * *', async () => {
+    try {
+      await purgeArchivedContent();
+    } catch (err) {
+      console.error('[scheduler] error during purgeArchivedContent:', err);
+    }
+  });
+
+  console.log('[scheduler] worker started — queue: 1min, inbox: 15min, analytics: 6hr, token refresh: daily 03:00, archive purge: daily 04:00');
 };

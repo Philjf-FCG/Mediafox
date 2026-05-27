@@ -503,6 +503,44 @@ export const restoreMediaAsset = (id: string): void => {
   getDb().prepare("UPDATE media_assets SET archived_at=NULL, archived_by=NULL WHERE id=?").run(id);
 };
 
+export interface ArchivePurgeResult {
+  postsDeleted: number;
+  inboxDeleted: number;
+  mediaDeleted: number;
+  mediaStoragePaths: string[];
+}
+
+export const purgeArchivedContentOlderThan = (cutoffIso: string): ArchivePurgeResult => {
+  const db = getDb();
+
+  const mediaRows = db.prepare(
+    "SELECT id, storage_path FROM media_assets WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)",
+  ).all(cutoffIso) as Array<{ id: string; storage_path: string }>;
+
+  let mediaDeleted = 0;
+  if (mediaRows.length > 0) {
+    const placeholders = mediaRows.map(() => '?').join(',');
+    const ids = mediaRows.map(r => r.id);
+    const mediaDelete = db.prepare(`DELETE FROM media_assets WHERE id IN (${placeholders})`).run(...ids);
+    mediaDeleted = mediaDelete.changes;
+  }
+
+  const postDelete = db.prepare(
+    "DELETE FROM posts WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)",
+  ).run(cutoffIso);
+
+  const inboxDelete = db.prepare(
+    "DELETE FROM inbox_items WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)",
+  ).run(cutoffIso);
+
+  return {
+    postsDeleted: postDelete.changes,
+    inboxDeleted: inboxDelete.changes,
+    mediaDeleted,
+    mediaStoragePaths: mediaRows.map(r => r.storage_path),
+  };
+};
+
 // ─── Team ────────────────────────────────────────────────────────────────────
 
 export interface StudioMember {

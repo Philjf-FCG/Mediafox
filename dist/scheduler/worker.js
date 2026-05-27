@@ -9,6 +9,7 @@ const queue_1 = require("./queue");
 const tokenRefresh_1 = require("./tokenRefresh");
 const inboxPollers_1 = require("./inboxPollers");
 const analyticsSync_1 = require("./analyticsSync");
+const archiveRetention_1 = require("./archiveRetention");
 let running = false;
 const startWorker = () => {
     // Post queue — every minute
@@ -53,7 +54,16 @@ const startWorker = () => {
             console.error('[scheduler] error during syncAnalytics:', err);
         }
     });
-    console.log('[scheduler] worker started — queue: 1min, inbox: 15min, analytics: 6hr, token refresh: daily 03:00');
+    // Archive retention purge — daily at 04:00
+    node_cron_1.default.schedule('0 4 * * *', async () => {
+        try {
+            await (0, archiveRetention_1.purgeArchivedContent)();
+        }
+        catch (err) {
+            console.error('[scheduler] error during purgeArchivedContent:', err);
+        }
+    });
+    console.log('[scheduler] worker started — queue: 1min, inbox: 15min, analytics: 6hr, token refresh: daily 03:00, archive purge: daily 04:00');
 };
 exports.startWorker = startWorker;
 //# sourceMappingURL=worker.js.map

@@ -127,6 +127,13 @@ export declare const getMediaAssets: (studioId: string, q?: string, includeArchi
 export declare const deleteMediaAsset: (id: string) => void;
 export declare const archiveMediaAsset: (id: string, actorId: string) => void;
 export declare const restoreMediaAsset: (id: string) => void;
+export interface ArchivePurgeResult {
+    postsDeleted: number;
+    inboxDeleted: number;
+    mediaDeleted: number;
+    mediaStoragePaths: string[];
+}
+export declare const purgeArchivedContentOlderThan: (cutoffIso: string) => ArchivePurgeResult;
 export interface StudioMember {
     studio_id: string;
     user_id: string;

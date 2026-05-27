@@ -3,7 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
+exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.purgeArchivedContentOlderThan = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
+exports.audit = void 0;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -437,6 +438,26 @@ const restoreMediaAsset = (id) => {
     (0, exports.getDb)().prepare("UPDATE media_assets SET archived_at=NULL, archived_by=NULL WHERE id=?").run(id);
 };
 exports.restoreMediaAsset = restoreMediaAsset;
+const purgeArchivedContentOlderThan = (cutoffIso) => {
+    const db = (0, exports.getDb)();
+    const mediaRows = db.prepare("SELECT id, storage_path FROM media_assets WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)").all(cutoffIso);
+    let mediaDeleted = 0;
+    if (mediaRows.length > 0) {
+        const placeholders = mediaRows.map(() => '?').join(',');
+        const ids = mediaRows.map(r => r.id);
+        const mediaDelete = db.prepare(`DELETE FROM media_assets WHERE id IN (${placeholders})`).run(...ids);
+        mediaDeleted = mediaDelete.changes;
+    }
+    const postDelete = db.prepare("DELETE FROM posts WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)").run(cutoffIso);
+    const inboxDelete = db.prepare("DELETE FROM inbox_items WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)").run(cutoffIso);
+    return {
+        postsDeleted: postDelete.changes,
+        inboxDeleted: inboxDelete.changes,
+        mediaDeleted,
+        mediaStoragePaths: mediaRows.map(r => r.storage_path),
+    };
+};
+exports.purgeArchivedContentOlderThan = purgeArchivedContentOlderThan;
 const getMember = (studioId, userId) => (0, exports.getDb)().prepare('SELECT * FROM studio_members WHERE studio_id=? AND user_id=?').get(studioId, userId) ?? null;
 exports.getMember = getMember;
 const getMembersByStudio = (studioId) => (0, exports.getDb)().prepare('SELECT * FROM studio_members WHERE studio_id=? ORDER BY role, name').all(studioId);
