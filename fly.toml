@@ -16,6 +16,7 @@ primary_region = 'lhr'
   AUTH_ADMIN_EMAILS = 'philjfoxton@googlemail.com'
   DATABASE_PATH = '/opt/data/mediafox.db'
   MEDIA_STORAGE_PATH = '/opt/data/media'
+  MEDIAFOX_PLAN = 'pro'
   NODE_ENV = 'production'
   PORT = '5004'
 

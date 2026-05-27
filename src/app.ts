@@ -48,12 +48,25 @@ export const createApp = (): express.Application => {
   app.get('/api/plan', requireAuth, async (req, res) => {
     const studioId = (req.headers['x-studio-id'] as string) || (req.query.studio_id as string);
     if (!studioId) { res.status(400).json({ error: 'x-studio-id required' }); return; }
-    const { getStudioPlan, getLimits, checkAccountLimit, checkPostQuota } = await import('./utils/planGating');
+    const { getStudioPlan, getLimits, checkAccountLimit, checkPostQuota, PLAN_NAMES } = await import('./utils/planGating');
     const plan = await getStudioPlan(studioId);
     const limits = getLimits(plan);
     const accounts = await checkAccountLimit(studioId);
     const posts = await checkPostQuota(studioId);
-    res.json({ plan, limits, usage: { accounts: accounts.current, posts_this_month: posts.current } });
+    res.json({ plan, limits, available_plans: PLAN_NAMES, usage: { accounts: accounts.current, posts_this_month: posts.current } });
+  });
+
+  // Admin: set plan for a studio locally (bypasses BudgetFox)
+  app.put('/api/plan', requireAuth, async (req, res) => {
+    const studioId = (req.headers['x-studio-id'] as string) || (req.body?.studio_id as string);
+    const { plan } = req.body as { plan?: string };
+    if (!studioId || !plan) { res.status(400).json({ error: 'studio_id and plan are required' }); return; }
+    if (req.mediafoxUser?.role !== 'admin') { res.status(403).json({ error: 'Admin only' }); return; }
+    const { PLAN_NAMES } = await import('./utils/planGating');
+    if (!PLAN_NAMES.includes(plan)) { res.status(400).json({ error: `plan must be one of: ${PLAN_NAMES.join(', ')}` }); return; }
+    const { setLocalStudioPlan } = await import('./utils/db');
+    setLocalStudioPlan(studioId, plan, req.mediafoxUser.userId);
+    res.json({ ok: true, studio_id: studioId, plan });
   });
 
   // Accounts router registered before the main authed router so OAuth callbacks

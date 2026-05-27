@@ -1,9 +1,9 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import { getAccountsByStudio, getDb } from './db';
+import { getAccountsByStudio, getDb, getLocalStudioPlan } from './db';
 
-interface PlanLimits {
+export interface PlanLimits {
   maxConnectedAccounts: number | null;
   maxScheduledPostsPerMonth: number | null;
   canUseAI: boolean;
@@ -11,7 +11,7 @@ interface PlanLimits {
   maxTeamMembers: number | null;
 }
 
-const MEDIAFOX_LIMITS: Record<string, PlanLimits> = {
+export const MEDIAFOX_LIMITS: Record<string, PlanLimits> = {
   free: {
     maxConnectedAccounts: 2,
     maxScheduledPostsPerMonth: 10,
@@ -42,7 +42,7 @@ const MEDIAFOX_LIMITS: Record<string, PlanLimits> = {
   },
 };
 
-const DEFAULT_LIMITS = MEDIAFOX_LIMITS.pro;
+export const PLAN_NAMES = Object.keys(MEDIAFOX_LIMITS);
 
 const getBudgetFoxUrl = (): string | null => {
   const configPath = path.join(process.cwd(), 'fox-suite.config.json');
@@ -53,30 +53,39 @@ const getBudgetFoxUrl = (): string | null => {
   } catch { return null; }
 };
 
-const planCache = new Map<string, { plan: string; expiresAt: number }>();
+const budgetFoxCache = new Map<string, { plan: string; expiresAt: number }>();
 
 export const getStudioPlan = async (studioId: string): Promise<string> => {
-  const now = Date.now();
-  const cached = planCache.get(studioId);
-  if (cached && cached.expiresAt > now) return cached.plan;
+  // 1. Per-studio local override (admin-set in MediaFox DB)
+  const localPlan = getLocalStudioPlan(studioId);
+  if (localPlan && MEDIAFOX_LIMITS[localPlan]) return localPlan;
 
+  // 2. Global env var override (e.g. MEDIAFOX_PLAN=pro in fly.toml)
+  const envPlan = process.env.MEDIAFOX_PLAN;
+  if (envPlan && MEDIAFOX_LIMITS[envPlan]) return envPlan;
+
+  // 3. BudgetFox billing API (if fox-suite.config.json present)
   const budgetfoxUrl = getBudgetFoxUrl();
-  if (!budgetfoxUrl) return 'pro'; // default if BudgetFox not configured
+  if (!budgetfoxUrl) return 'pro';
+
+  const now = Date.now();
+  const cached = budgetFoxCache.get(studioId);
+  if (cached && cached.expiresAt > now) return cached.plan;
 
   try {
     const res = await axios.get<{ plan: string }>(`${budgetfoxUrl}/api/billing/subscription/${studioId}`, {
       timeout: 5000,
     });
     const plan = res.data.plan ?? 'pro';
-    planCache.set(studioId, { plan, expiresAt: now + 5 * 60 * 1000 }); // 5-min cache
+    budgetFoxCache.set(studioId, { plan, expiresAt: now + 5 * 60 * 1000 });
     return plan;
   } catch {
-    return planCache.get(studioId)?.plan ?? 'pro';
+    return budgetFoxCache.get(studioId)?.plan ?? 'pro';
   }
 };
 
 export const getLimits = (planName: string): PlanLimits =>
-  MEDIAFOX_LIMITS[planName] ?? DEFAULT_LIMITS;
+  MEDIAFOX_LIMITS[planName] ?? MEDIAFOX_LIMITS.pro;
 
 export const checkAccountLimit = async (studioId: string): Promise<{ allowed: boolean; current: number; max: number | null; plan: string }> => {
   const plan = await getStudioPlan(studioId);
@@ -95,7 +104,7 @@ export const checkPostQuota = async (studioId: string): Promise<{ allowed: boole
   monthStart.setHours(0, 0, 0, 0);
 
   const current = (getDb()
-    .prepare(`SELECT COUNT(*) as n FROM posts WHERE studio_id=? AND status='scheduled' AND created_at >= ?`)
+    .prepare(`SELECT COUNT(*) as n FROM posts WHERE studio_id=? AND status IN ('scheduled','publishing','published') AND created_at >= ?`)
     .get(studioId, monthStart.toISOString()) as { n: number }).n;
 
   const allowed = limits.maxScheduledPostsPerMonth === null || current < limits.maxScheduledPostsPerMonth;

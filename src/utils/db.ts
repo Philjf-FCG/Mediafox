@@ -197,6 +197,13 @@ const migrate = (db: Database.Database): void => {
 
     CREATE INDEX IF NOT EXISTS idx_inbox_studio    ON inbox_items(studio_id, status);
     CREATE INDEX IF NOT EXISTS idx_accounts_studio ON accounts(studio_id);
+    CREATE TABLE IF NOT EXISTS studio_plans (
+      studio_id     TEXT PRIMARY KEY,
+      plan          TEXT NOT NULL DEFAULT 'pro',
+      set_by        TEXT,
+      set_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id            TEXT PRIMARY KEY,
       email         TEXT NOT NULL UNIQUE,
@@ -493,6 +500,18 @@ export const getNotifications = (recipientId: string, unreadOnly = false): unkno
 
 export const markNotificationsRead = (recipientId: string): void => {
   getDb().prepare("UPDATE notifications SET read=1 WHERE recipient_id=?").run(recipientId);
+};
+
+// ─── Studio plans ────────────────────────────────────────────────────────────
+
+export const getLocalStudioPlan = (studioId: string): string | null =>
+  ((getDb().prepare('SELECT plan FROM studio_plans WHERE studio_id=?').get(studioId) as { plan: string } | undefined)?.plan) ?? null;
+
+export const setLocalStudioPlan = (studioId: string, plan: string, setBy?: string): void => {
+  getDb().prepare(`INSERT INTO studio_plans (studio_id, plan, set_by, set_at)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(studio_id) DO UPDATE SET plan=excluded.plan, set_by=excluded.set_by, set_at=excluded.set_at`)
+    .run(studioId, plan, setBy ?? null);
 };
 
 // ─── Users ───────────────────────────────────────────────────────────────────
