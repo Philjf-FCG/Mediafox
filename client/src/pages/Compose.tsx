@@ -3,6 +3,14 @@ import { api } from '../api';
 
 interface Account { id: string; platform: string; display_name: string; type: string; status: string; }
 interface LinkPreview { url: string; title: string | null; description: string | null; image: string | null; site_name: string | null; }
+interface TikTokAssist {
+  id: string;
+  caption: string;
+  status: 'draft' | 'handed_off' | 'published' | 'cancelled';
+  handoff_note: string | null;
+  publish_url: string | null;
+  created_at: string;
+}
 
 const URL_REGEX = /https?:\/\/[^\s]+/;
 
@@ -43,6 +51,10 @@ export default function Compose() {
   const [tiktokCaption, setTiktokCaption] = useState('');
   const [tiktokNote, setTiktokNote] = useState('');
   const [tiktokSubmitting, setTiktokSubmitting] = useState(false);
+  const [tiktokAssists, setTiktokAssists] = useState<TikTokAssist[]>([]);
+  const [loadingTikTokAssists, setLoadingTikTokAssists] = useState(false);
+  const [completingAssistId, setCompletingAssistId] = useState<string | null>(null);
+  const [publishUrlByAssistId, setPublishUrlByAssistId] = useState<Record<string, string>>({});
   const [linkPreview, setLinkPreview] = useState<LinkPreview | null>(null);
   const previewDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -147,12 +159,56 @@ export default function Compose() {
       });
       setStatus('TikTok handoff created ✓');
       setTiktokNote('');
+      const list = await api.get<{ assists: TikTokAssist[] }>(`/posts/${lastPostId}/tiktok-assists`);
+      setTiktokAssists(list.data.assists || []);
     } catch {
       setStatus('Failed to create TikTok handoff');
     } finally {
       setTiktokSubmitting(false);
     }
   }, [lastPostId, tiktokCaption, tiktokNote]);
+
+  const loadTikTokAssists = useCallback(async (postId: string) => {
+    setLoadingTikTokAssists(true);
+    try {
+      const r = await api.get<{ assists: TikTokAssist[] }>(`/posts/${postId}/tiktok-assists`);
+      setTiktokAssists(r.data.assists || []);
+    } catch {
+      setTiktokAssists([]);
+    } finally {
+      setLoadingTikTokAssists(false);
+    }
+  }, []);
+
+  const completeTikTokAssist = useCallback(async (assistId: string) => {
+    if (!lastPostId) return;
+    const publishUrl = (publishUrlByAssistId[assistId] || '').trim();
+    if (!/^https?:\/\//i.test(publishUrl)) {
+      setStatus('TikTok publish URL must start with http:// or https://');
+      return;
+    }
+
+    setCompletingAssistId(assistId);
+    try {
+      await api.post(`/posts/${lastPostId}/tiktok-assists/${assistId}/complete`, { publish_url: publishUrl });
+      setStatus('TikTok handoff marked published ✓');
+      setPublishUrlByAssistId(prev => ({ ...prev, [assistId]: '' }));
+      await loadTikTokAssists(lastPostId);
+    } catch {
+      setStatus('Failed to mark TikTok handoff published');
+    } finally {
+      setCompletingAssistId(null);
+    }
+  }, [lastPostId, publishUrlByAssistId, loadTikTokAssists]);
+
+  useEffect(() => {
+    if (!lastPostId) {
+      setTiktokAssists([]);
+      setPublishUrlByAssistId({});
+      return;
+    }
+    void loadTikTokAssists(lastPostId);
+  }, [lastPostId, loadTikTokAssists]);
 
   const selectedAccounts = accounts.filter(a => selected.has(a.id));
 
@@ -305,6 +361,47 @@ export default function Compose() {
           <button style={{ ...btn(true), background: '#111827' }} onClick={() => { void createTikTokAssist(); }} disabled={tiktokSubmitting}>
             {tiktokSubmitting ? 'Creating…' : 'Create TikTok Handoff'}
           </button>
+
+          <div style={{ marginTop: 14, borderTop: '1px solid #2d3748', paddingTop: 14 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Current Handoffs</h3>
+            {loadingTikTokAssists && <p style={{ color: '#94a3b8', fontSize: 13 }}>Loading handoffs…</p>}
+            {!loadingTikTokAssists && tiktokAssists.length === 0 && (
+              <p style={{ color: '#64748b', fontSize: 13 }}>No TikTok handoffs created for this post yet.</p>
+            )}
+            {!loadingTikTokAssists && tiktokAssists.length > 0 && (
+              <div style={{ display: 'grid', gap: 10 }}>
+                {tiktokAssists.map(assist => (
+                  <div key={assist.id} style={{ background: '#0f1117', border: '1px solid #2d3748', borderRadius: 8, padding: 10 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
+                      <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>Status: {assist.status}</span>
+                      <span style={{ color: '#64748b', fontSize: 12 }}>{new Date(assist.created_at).toLocaleString()}</span>
+                    </div>
+                    <p style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 6, whiteSpace: 'pre-wrap' }}>{assist.caption}</p>
+                    {assist.handoff_note && <p style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>Note: {assist.handoff_note}</p>}
+                    {assist.publish_url ? (
+                      <a href={assist.publish_url} target="_blank" rel="noreferrer" style={{ color: '#22c55e', fontSize: 12 }}>Published URL ↗</a>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          style={input}
+                          placeholder="https://www.tiktok.com/@account/video/..."
+                          value={publishUrlByAssistId[assist.id] ?? ''}
+                          onChange={e => setPublishUrlByAssistId(prev => ({ ...prev, [assist.id]: e.target.value }))}
+                        />
+                        <button
+                          style={{ ...btn(true), whiteSpace: 'nowrap' }}
+                          onClick={() => { void completeTikTokAssist(assist.id); }}
+                          disabled={completingAssistId === assist.id}
+                        >
+                          {completingAssistId === assist.id ? 'Saving…' : 'Mark Published'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
