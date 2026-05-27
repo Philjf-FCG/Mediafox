@@ -3,8 +3,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.purgeArchivedContentOlderThan = exports.getMediaAssetByHash = exports.getMediaAssetBySource = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
-exports.audit = exports.updateUser = exports.createUser = void 0;
+exports.getLocalStudioPlan = exports.markRedditAssistPublished = exports.getRedditAssistsByPost = exports.createRedditAssist = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.purgeArchivedContentOlderThan = exports.getMediaAssetByHash = exports.getMediaAssetBySource = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
+exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = void 0;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -175,6 +175,21 @@ const migrate = (db) => {
       created_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS reddit_assists (
+      id               TEXT PRIMARY KEY,
+      post_id          TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      studio_id        TEXT NOT NULL,
+      requested_by     TEXT NOT NULL,
+      subreddit        TEXT NOT NULL,
+      title            TEXT NOT NULL,
+      body             TEXT,
+      status           TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','handed_off','published','cancelled')),
+      handoff_note     TEXT,
+      publish_url      TEXT,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS audit_events (
       id               TEXT PRIMARY KEY,
       studio_id        TEXT NOT NULL,
@@ -250,6 +265,7 @@ const migrate = (db) => {
     CREATE INDEX IF NOT EXISTS idx_audit           ON audit_events(studio_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_post_analytics  ON post_analytics(post_variant_id);
     CREATE INDEX IF NOT EXISTS idx_acct_analytics  ON account_analytics(account_id, recorded_at);
+    CREATE INDEX IF NOT EXISTS idx_reddit_assists  ON reddit_assists(studio_id, post_id, status);
   `);
     // Backward-compatible migration for existing databases created before archive columns existed.
     ensureColumn(db, 'posts', 'archived_at', 'TEXT');
@@ -521,6 +537,24 @@ const markNotificationsRead = (recipientId) => {
     (0, exports.getDb)().prepare("UPDATE notifications SET read=1 WHERE recipient_id=?").run(recipientId);
 };
 exports.markNotificationsRead = markNotificationsRead;
+const createRedditAssist = (r) => {
+    (0, exports.getDb)().prepare(`
+    INSERT INTO reddit_assists (id, post_id, studio_id, requested_by, subreddit, title, body, status, handoff_note)
+    VALUES (@id, @post_id, @studio_id, @requested_by, @subreddit, @title, @body, 'handed_off', @handoff_note)
+  `).run(r);
+    return (0, exports.getDb)().prepare('SELECT * FROM reddit_assists WHERE id=?').get(r.id);
+};
+exports.createRedditAssist = createRedditAssist;
+const getRedditAssistsByPost = (studioId, postId) => (0, exports.getDb)().prepare('SELECT * FROM reddit_assists WHERE studio_id=? AND post_id=? ORDER BY created_at DESC').all(studioId, postId);
+exports.getRedditAssistsByPost = getRedditAssistsByPost;
+const markRedditAssistPublished = (id, publishUrl) => {
+    (0, exports.getDb)().prepare(`
+    UPDATE reddit_assists
+    SET status='published', publish_url=?, updated_at=datetime('now')
+    WHERE id=?
+  `).run(publishUrl, id);
+};
+exports.markRedditAssistPublished = markRedditAssistPublished;
 // ─── Studio plans ────────────────────────────────────────────────────────────
 const getLocalStudioPlan = (studioId) => ((0, exports.getDb)().prepare('SELECT plan FROM studio_plans WHERE studio_id=?').get(studioId)?.plan) ?? null;
 exports.getLocalStudioPlan = getLocalStudioPlan;

@@ -5,6 +5,7 @@ import {
   createPostVariant, getVariantsByPost, getMember,
   createApprovalRequest, resolveApproval, getPendingApproval,
   audit, archivePost, restorePost,
+  createRedditAssist, getRedditAssistsByPost, markRedditAssistPublished,
 } from '../utils/db';
 import { schedulePost, schedulePostNow } from '../scheduler/queue';
 import { checkPostQuota } from '../utils/planGating';
@@ -256,6 +257,69 @@ router.post('/:id/restore', (req: Request, res: Response) => {
   restorePost(post.id);
   audit(req.studioId!, req.mediafoxUser!.userId, 'restore', 'post', post.id);
   res.json({ post: postWithVariants(post.id) });
+});
+
+// ─── Reddit assisted publish workflow ───────────────────────────────────────
+
+router.get('/:id/reddit-assists', (req: Request, res: Response) => {
+  const post = getPostById(req.params.id);
+  if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  res.json({ assists: getRedditAssistsByPost(req.studioId!, post.id) });
+});
+
+router.post('/:id/reddit-assists', (req: Request, res: Response) => {
+  if (!requireRole(req, res, 'owner', 'manager', 'editor')) return;
+  const post = getPostById(req.params.id);
+  if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Cannot hand off an archived post' }); return; }
+
+  const { subreddit, title, body, handoff_note } = req.body as {
+    subreddit?: string;
+    title?: string;
+    body?: string;
+    handoff_note?: string;
+  };
+  if (!subreddit || !title) {
+    res.status(400).json({ error: 'subreddit and title are required' });
+    return;
+  }
+
+  const normalizedSubreddit = subreddit.replace(/^r\//i, '').trim();
+  if (!normalizedSubreddit) { res.status(400).json({ error: 'subreddit is invalid' }); return; }
+
+  const assist = createRedditAssist({
+    id: uuidv4(),
+    post_id: post.id,
+    studio_id: req.studioId!,
+    requested_by: req.mediafoxUser!.userId,
+    subreddit: normalizedSubreddit,
+    title: title.trim(),
+    body: body?.trim() || null,
+    handoff_note: handoff_note?.trim() || null,
+  });
+
+  audit(req.studioId!, req.mediafoxUser!.userId, 'reddit_handoff', 'post', post.id, { assist_id: assist.id, subreddit: normalizedSubreddit });
+  res.status(201).json({ assist });
+});
+
+router.post('/:id/reddit-assists/:assistId/complete', (req: Request, res: Response) => {
+  if (!requireRole(req, res, 'owner', 'manager', 'editor')) return;
+  const post = getPostById(req.params.id);
+  if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+
+  const assists = getRedditAssistsByPost(req.studioId!, post.id);
+  const assist = assists.find(a => a.id === req.params.assistId);
+  if (!assist) { res.status(404).json({ error: 'Assist not found' }); return; }
+
+  const { publish_url } = req.body as { publish_url?: string };
+  if (!publish_url || !/^https?:\/\//i.test(publish_url)) {
+    res.status(400).json({ error: 'publish_url must be a valid http(s) URL' });
+    return;
+  }
+
+  markRedditAssistPublished(assist.id, publish_url.trim());
+  audit(req.studioId!, req.mediafoxUser!.userId, 'reddit_publish_complete', 'post', post.id, { assist_id: assist.id, publish_url });
+  res.json({ ok: true });
 });
 
 // Inline helper to avoid circular import

@@ -332,6 +332,73 @@ router.post('/:id/restore', (req, res) => {
     (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'restore', 'post', post.id);
     res.json({ post: postWithVariants(post.id) });
 });
+// ─── Reddit assisted publish workflow ───────────────────────────────────────
+router.get('/:id/reddit-assists', (req, res) => {
+    const post = (0, db_1.getPostById)(req.params.id);
+    if (!post || post.studio_id !== req.studioId) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+    }
+    res.json({ assists: (0, db_1.getRedditAssistsByPost)(req.studioId, post.id) });
+});
+router.post('/:id/reddit-assists', (req, res) => {
+    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+        return;
+    const post = (0, db_1.getPostById)(req.params.id);
+    if (!post || post.studio_id !== req.studioId) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+    }
+    if (post.archived_at) {
+        res.status(409).json({ error: 'Cannot hand off an archived post' });
+        return;
+    }
+    const { subreddit, title, body, handoff_note } = req.body;
+    if (!subreddit || !title) {
+        res.status(400).json({ error: 'subreddit and title are required' });
+        return;
+    }
+    const normalizedSubreddit = subreddit.replace(/^r\//i, '').trim();
+    if (!normalizedSubreddit) {
+        res.status(400).json({ error: 'subreddit is invalid' });
+        return;
+    }
+    const assist = (0, db_1.createRedditAssist)({
+        id: (0, uuid_1.v4)(),
+        post_id: post.id,
+        studio_id: req.studioId,
+        requested_by: req.mediafoxUser.userId,
+        subreddit: normalizedSubreddit,
+        title: title.trim(),
+        body: body?.trim() || null,
+        handoff_note: handoff_note?.trim() || null,
+    });
+    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reddit_handoff', 'post', post.id, { assist_id: assist.id, subreddit: normalizedSubreddit });
+    res.status(201).json({ assist });
+});
+router.post('/:id/reddit-assists/:assistId/complete', (req, res) => {
+    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+        return;
+    const post = (0, db_1.getPostById)(req.params.id);
+    if (!post || post.studio_id !== req.studioId) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+    }
+    const assists = (0, db_1.getRedditAssistsByPost)(req.studioId, post.id);
+    const assist = assists.find(a => a.id === req.params.assistId);
+    if (!assist) {
+        res.status(404).json({ error: 'Assist not found' });
+        return;
+    }
+    const { publish_url } = req.body;
+    if (!publish_url || !/^https?:\/\//i.test(publish_url)) {
+        res.status(400).json({ error: 'publish_url must be a valid http(s) URL' });
+        return;
+    }
+    (0, db_1.markRedditAssistPublished)(assist.id, publish_url.trim());
+    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reddit_publish_complete', 'post', post.id, { assist_id: assist.id, publish_url });
+    res.json({ ok: true });
+});
 // Inline helper to avoid circular import
 const getDb = () => require('../utils/db').getDb();
 exports.default = router;

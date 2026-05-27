@@ -169,6 +169,21 @@ const migrate = (db: Database.Database): void => {
       created_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS reddit_assists (
+      id               TEXT PRIMARY KEY,
+      post_id          TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      studio_id        TEXT NOT NULL,
+      requested_by     TEXT NOT NULL,
+      subreddit        TEXT NOT NULL,
+      title            TEXT NOT NULL,
+      body             TEXT,
+      status           TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','handed_off','published','cancelled')),
+      handoff_note     TEXT,
+      publish_url      TEXT,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS audit_events (
       id               TEXT PRIMARY KEY,
       studio_id        TEXT NOT NULL,
@@ -244,6 +259,7 @@ const migrate = (db: Database.Database): void => {
     CREATE INDEX IF NOT EXISTS idx_audit           ON audit_events(studio_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_post_analytics  ON post_analytics(post_variant_id);
     CREATE INDEX IF NOT EXISTS idx_acct_analytics  ON account_analytics(account_id, recorded_at);
+    CREATE INDEX IF NOT EXISTS idx_reddit_assists  ON reddit_assists(studio_id, post_id, status);
   `);
 
   // Backward-compatible migration for existing databases created before archive columns existed.
@@ -627,6 +643,42 @@ export const getNotifications = (recipientId: string, unreadOnly = false): unkno
 
 export const markNotificationsRead = (recipientId: string): void => {
   getDb().prepare("UPDATE notifications SET read=1 WHERE recipient_id=?").run(recipientId);
+};
+
+// ─── Reddit Assisted Publish ────────────────────────────────────────────────
+
+export interface RedditAssistRecord {
+  id: string;
+  post_id: string;
+  studio_id: string;
+  requested_by: string;
+  subreddit: string;
+  title: string;
+  body: string | null;
+  status: 'draft' | 'handed_off' | 'published' | 'cancelled';
+  handoff_note: string | null;
+  publish_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const createRedditAssist = (r: Pick<RedditAssistRecord, 'id' | 'post_id' | 'studio_id' | 'requested_by' | 'subreddit' | 'title' | 'body' | 'handoff_note'>): RedditAssistRecord => {
+  getDb().prepare(`
+    INSERT INTO reddit_assists (id, post_id, studio_id, requested_by, subreddit, title, body, status, handoff_note)
+    VALUES (@id, @post_id, @studio_id, @requested_by, @subreddit, @title, @body, 'handed_off', @handoff_note)
+  `).run(r);
+  return getDb().prepare('SELECT * FROM reddit_assists WHERE id=?').get(r.id) as RedditAssistRecord;
+};
+
+export const getRedditAssistsByPost = (studioId: string, postId: string): RedditAssistRecord[] =>
+  getDb().prepare('SELECT * FROM reddit_assists WHERE studio_id=? AND post_id=? ORDER BY created_at DESC').all(studioId, postId) as RedditAssistRecord[];
+
+export const markRedditAssistPublished = (id: string, publishUrl: string): void => {
+  getDb().prepare(`
+    UPDATE reddit_assists
+    SET status='published', publish_url=?, updated_at=datetime('now')
+    WHERE id=?
+  `).run(publishUrl, id);
 };
 
 // ─── Studio plans ────────────────────────────────────────────────────────────

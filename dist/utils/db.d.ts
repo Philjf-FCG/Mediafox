@@ -168,6 +168,23 @@ export declare const getPendingApproval: (postId: string) => ApprovalRequest | n
 export declare const createNotification: (id: string, recipientId: string, studioId: string, type: string, title: string, body?: string, link?: string) => void;
 export declare const getNotifications: (recipientId: string, unreadOnly?: boolean) => unknown[];
 export declare const markNotificationsRead: (recipientId: string) => void;
+export interface RedditAssistRecord {
+    id: string;
+    post_id: string;
+    studio_id: string;
+    requested_by: string;
+    subreddit: string;
+    title: string;
+    body: string | null;
+    status: 'draft' | 'handed_off' | 'published' | 'cancelled';
+    handoff_note: string | null;
+    publish_url: string | null;
+    created_at: string;
+    updated_at: string;
+}
+export declare const createRedditAssist: (r: Pick<RedditAssistRecord, "id" | "post_id" | "studio_id" | "requested_by" | "subreddit" | "title" | "body" | "handoff_note">) => RedditAssistRecord;
+export declare const getRedditAssistsByPost: (studioId: string, postId: string) => RedditAssistRecord[];
+export declare const markRedditAssistPublished: (id: string, publishUrl: string) => void;
 export declare const getLocalStudioPlan: (studioId: string) => string | null;
 export declare const setLocalStudioPlan: (studioId: string, plan: string, setBy?: string) => void;
 export interface UserRecord {
