@@ -53,28 +53,37 @@ const media_1 = __importDefault(require("./routes/media"));
 const team_1 = __importDefault(require("./routes/team"));
 const notifications_1 = __importDefault(require("./routes/notifications"));
 const ai_1 = __importDefault(require("./routes/ai"));
+const normalizeOrigin = (origin) => origin.trim().replace(/\/+$/, '');
 const loadAllowedOrigins = () => {
+    const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
+        .split(',')
+        .map(o => o.trim())
+        .filter(Boolean)
+        .map(normalizeOrigin);
     const configPath = path_1.default.join(process.cwd(), 'fox-suite.config.json');
     if (!fs_1.default.existsSync(configPath))
-        return [];
+        return Array.from(new Set(envOrigins));
     try {
         const config = JSON.parse(fs_1.default.readFileSync(configPath, 'utf8'));
-        return Object.values(config).filter(Boolean);
+        const configOrigins = Object.values(config).filter(Boolean).map(normalizeOrigin);
+        return Array.from(new Set([...envOrigins, ...configOrigins]));
     }
     catch {
-        return [];
+        return Array.from(new Set(envOrigins));
     }
 };
 const createApp = () => {
     const app = (0, express_1.default)();
     const allowedOrigins = loadAllowedOrigins();
+    const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
     app.use((0, cors_1.default)({
         origin: (origin, cb) => {
             if (!origin)
                 return cb(null, true);
-            if (allowedOrigins.length === 0)
+            const normalizedOrigin = normalizeOrigin(origin);
+            if (allowedOrigins.includes(normalizedOrigin))
                 return cb(null, true);
-            if (allowedOrigins.includes(origin))
+            if (!isProd && allowedOrigins.length === 0)
                 return cb(null, true);
             cb(new Error(`CORS: origin ${origin} blocked`));
         },
