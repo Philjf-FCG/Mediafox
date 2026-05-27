@@ -86,7 +86,7 @@ export default function App() {
   }
 
   if (!auth.authenticated) {
-    return <Login onAuthenticated={fetchMe} />;
+    return <Login authEnabled={auth.authEnabled} onAuthenticated={fetchMe} />;
   }
 
   return (
