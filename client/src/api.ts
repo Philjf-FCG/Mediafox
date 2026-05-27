@@ -2,12 +2,24 @@ import axios, { AxiosHeaders } from 'axios';
 
 export const api = axios.create({ baseURL: '/api', withCredentials: true });
 
-let currentStudioId: string = localStorage.getItem('mediafox_studio') ?? '';
+const readStudioId = (): string => {
+  try {
+    return localStorage.getItem('mediafox_studio') ?? '';
+  } catch {
+    return '';
+  }
+};
+
+let currentStudioId: string = readStudioId();
 let csrfToken: string | null = null;
 
 export const setStudioId = (id: string): void => {
   currentStudioId = id;
-  localStorage.setItem('mediafox_studio', id);
+  try {
+    localStorage.setItem('mediafox_studio', id);
+  } catch {
+    // Ignore storage write failures so app can still function in restricted contexts.
+  }
 };
 
 export const getStudioId = (): string => currentStudioId;
