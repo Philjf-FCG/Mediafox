@@ -56,7 +56,7 @@ export default function Library() {
           <button style={{ background: '#f97316', border: 'none', color: '#fff', padding: '10px 18px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => fileRef.current?.click()} disabled={uploading}>
             {uploading ? 'Uploading…' : '+ Upload'}
           </button>
-          <input ref={fileRef} type="file" style={{ display: 'none' }} accept="image/*,video/mp4" onChange={handleUpload} />
+          <input ref={fileRef} type="file" style={{ display: 'none' }} accept="image/*,.heic,.heif,video/mp4,video/quicktime,.mov" onChange={handleUpload} />
         </div>
       </div>
 

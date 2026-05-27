@@ -58,7 +58,17 @@ const upload = (0, multer_1.default)({
     storage,
     limits: { fileSize: 100 * 1024 * 1024 },
     fileFilter: (_req, file, cb) => {
-        const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'application/pdf'];
+        const allowed = [
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'image/webp',
+            'image/heic',
+            'image/heif',
+            'video/mp4',
+            'video/quicktime',
+            'application/pdf',
+        ];
         cb(null, allowed.includes(file.mimetype));
     },
 });
