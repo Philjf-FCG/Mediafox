@@ -184,6 +184,20 @@ const migrate = (db: Database.Database): void => {
       updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS tiktok_assists (
+      id               TEXT PRIMARY KEY,
+      post_id          TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+      studio_id        TEXT NOT NULL,
+      requested_by     TEXT NOT NULL,
+      caption          TEXT NOT NULL,
+      media_asset_id   TEXT,
+      status           TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','handed_off','published','cancelled')),
+      handoff_note     TEXT,
+      publish_url      TEXT,
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS audit_events (
       id               TEXT PRIMARY KEY,
       studio_id        TEXT NOT NULL,
@@ -260,6 +274,7 @@ const migrate = (db: Database.Database): void => {
     CREATE INDEX IF NOT EXISTS idx_post_analytics  ON post_analytics(post_variant_id);
     CREATE INDEX IF NOT EXISTS idx_acct_analytics  ON account_analytics(account_id, recorded_at);
     CREATE INDEX IF NOT EXISTS idx_reddit_assists  ON reddit_assists(studio_id, post_id, status);
+    CREATE INDEX IF NOT EXISTS idx_tiktok_assists  ON tiktok_assists(studio_id, post_id, status);
   `);
 
   // Backward-compatible migration for existing databases created before archive columns existed.
@@ -676,6 +691,39 @@ export const getRedditAssistsByPost = (studioId: string, postId: string): Reddit
 export const markRedditAssistPublished = (id: string, publishUrl: string): void => {
   getDb().prepare(`
     UPDATE reddit_assists
+    SET status='published', publish_url=?, updated_at=datetime('now')
+    WHERE id=?
+  `).run(publishUrl, id);
+};
+
+export interface TikTokAssistRecord {
+  id: string;
+  post_id: string;
+  studio_id: string;
+  requested_by: string;
+  caption: string;
+  media_asset_id: string | null;
+  status: 'draft' | 'handed_off' | 'published' | 'cancelled';
+  handoff_note: string | null;
+  publish_url: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export const createTikTokAssist = (r: Pick<TikTokAssistRecord, 'id' | 'post_id' | 'studio_id' | 'requested_by' | 'caption' | 'media_asset_id' | 'handoff_note'>): TikTokAssistRecord => {
+  getDb().prepare(`
+    INSERT INTO tiktok_assists (id, post_id, studio_id, requested_by, caption, media_asset_id, status, handoff_note)
+    VALUES (@id, @post_id, @studio_id, @requested_by, @caption, @media_asset_id, 'handed_off', @handoff_note)
+  `).run(r);
+  return getDb().prepare('SELECT * FROM tiktok_assists WHERE id=?').get(r.id) as TikTokAssistRecord;
+};
+
+export const getTikTokAssistsByPost = (studioId: string, postId: string): TikTokAssistRecord[] =>
+  getDb().prepare('SELECT * FROM tiktok_assists WHERE studio_id=? AND post_id=? ORDER BY created_at DESC').all(studioId, postId) as TikTokAssistRecord[];
+
+export const markTikTokAssistPublished = (id: string, publishUrl: string): void => {
+  getDb().prepare(`
+    UPDATE tiktok_assists
     SET status='published', publish_url=?, updated_at=datetime('now')
     WHERE id=?
   `).run(publishUrl, id);

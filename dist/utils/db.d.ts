@@ -185,6 +185,22 @@ export interface RedditAssistRecord {
 export declare const createRedditAssist: (r: Pick<RedditAssistRecord, "id" | "post_id" | "studio_id" | "requested_by" | "subreddit" | "title" | "body" | "handoff_note">) => RedditAssistRecord;
 export declare const getRedditAssistsByPost: (studioId: string, postId: string) => RedditAssistRecord[];
 export declare const markRedditAssistPublished: (id: string, publishUrl: string) => void;
+export interface TikTokAssistRecord {
+    id: string;
+    post_id: string;
+    studio_id: string;
+    requested_by: string;
+    caption: string;
+    media_asset_id: string | null;
+    status: 'draft' | 'handed_off' | 'published' | 'cancelled';
+    handoff_note: string | null;
+    publish_url: string | null;
+    created_at: string;
+    updated_at: string;
+}
+export declare const createTikTokAssist: (r: Pick<TikTokAssistRecord, "id" | "post_id" | "studio_id" | "requested_by" | "caption" | "media_asset_id" | "handoff_note">) => TikTokAssistRecord;
+export declare const getTikTokAssistsByPost: (studioId: string, postId: string) => TikTokAssistRecord[];
+export declare const markTikTokAssistPublished: (id: string, publishUrl: string) => void;
 export declare const getLocalStudioPlan: (studioId: string) => string | null;
 export declare const setLocalStudioPlan: (studioId: string, plan: string, setBy?: string) => void;
 export interface UserRecord {

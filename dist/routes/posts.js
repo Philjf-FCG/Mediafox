@@ -399,6 +399,71 @@ router.post('/:id/reddit-assists/:assistId/complete', (req, res) => {
     (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reddit_publish_complete', 'post', post.id, { assist_id: assist.id, publish_url });
     res.json({ ok: true });
 });
+// ─── TikTok assisted publish workflow ───────────────────────────────────────
+router.get('/:id/tiktok-assists', (req, res) => {
+    const post = (0, db_1.getPostById)(req.params.id);
+    if (!post || post.studio_id !== req.studioId) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+    }
+    res.json({ assists: (0, db_1.getTikTokAssistsByPost)(req.studioId, post.id) });
+});
+router.post('/:id/tiktok-assists', (req, res) => {
+    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+        return;
+    const post = (0, db_1.getPostById)(req.params.id);
+    if (!post || post.studio_id !== req.studioId) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+    }
+    if (post.archived_at) {
+        res.status(409).json({ error: 'Cannot hand off an archived post' });
+        return;
+    }
+    const { caption, media_asset_id, handoff_note } = req.body;
+    if (!caption || !caption.trim()) {
+        res.status(400).json({ error: 'caption is required' });
+        return;
+    }
+    if (caption.trim().length > 2200) {
+        res.status(400).json({ error: 'caption exceeds TikTok limits' });
+        return;
+    }
+    const assist = (0, db_1.createTikTokAssist)({
+        id: (0, uuid_1.v4)(),
+        post_id: post.id,
+        studio_id: req.studioId,
+        requested_by: req.mediafoxUser.userId,
+        caption: caption.trim(),
+        media_asset_id: media_asset_id?.trim() || null,
+        handoff_note: handoff_note?.trim() || null,
+    });
+    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'tiktok_handoff', 'post', post.id, { assist_id: assist.id });
+    res.status(201).json({ assist });
+});
+router.post('/:id/tiktok-assists/:assistId/complete', (req, res) => {
+    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+        return;
+    const post = (0, db_1.getPostById)(req.params.id);
+    if (!post || post.studio_id !== req.studioId) {
+        res.status(404).json({ error: 'Not found' });
+        return;
+    }
+    const assists = (0, db_1.getTikTokAssistsByPost)(req.studioId, post.id);
+    const assist = assists.find(a => a.id === req.params.assistId);
+    if (!assist) {
+        res.status(404).json({ error: 'Assist not found' });
+        return;
+    }
+    const { publish_url } = req.body;
+    if (!publish_url || !/^https?:\/\//i.test(publish_url)) {
+        res.status(400).json({ error: 'publish_url must be a valid http(s) URL' });
+        return;
+    }
+    (0, db_1.markTikTokAssistPublished)(assist.id, publish_url.trim());
+    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'tiktok_publish_complete', 'post', post.id, { assist_id: assist.id, publish_url });
+    res.json({ ok: true });
+});
 // Inline helper to avoid circular import
 const getDb = () => require('../utils/db').getDb();
 exports.default = router;
