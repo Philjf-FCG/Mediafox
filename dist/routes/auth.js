@@ -143,6 +143,10 @@ router.post('/google', async (req, res) => {
         const audience = readJwtAudience(credential);
         const configured = GOOGLE_CLIENT_IDS.join(', ');
         const message = String(err?.message || '');
+        if (message.includes('MEDIAFOX_JWT_SECRET is required')) {
+            res.status(500).json({ error: 'Server auth is misconfigured.', detail: message });
+            return;
+        }
         const detail = audience
             ? `${message} (token aud=${audience}; expected one of: ${configured})`
             : message;
