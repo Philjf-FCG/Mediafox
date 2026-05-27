@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getInboxItems, updateInboxItem, getAccountById } from '../utils/db';
+import { getInboxItems, updateInboxItem, getAccountById, archiveInboxItem, restoreInboxItem } from '../utils/db';
 import { replyToDiscordMessage } from '../adapters/discord';
 import { replyToSlackMessage } from '../adapters/slack';
 import axios from 'axios';
@@ -8,12 +8,16 @@ import { decryptToken } from '../utils/crypto';
 const router = Router();
 
 router.get('/', (req: Request, res: Response) => {
-  const { platform, status, account_id } = req.query as { platform?: string; status?: string; account_id?: string };
-  const items = getInboxItems(req.studioId!, { platform, status, accountId: account_id });
+  const { platform, status, account_id, include_archived } = req.query as { platform?: string; status?: string; account_id?: string; include_archived?: string };
+  const includeArchived = include_archived === '1' || include_archived === 'true';
+  const items = getInboxItems(req.studioId!, { platform, status, accountId: account_id, includeArchived });
   res.json({ items });
 });
 
 router.put('/:id', (req: Request, res: Response) => {
+  const db = require('../utils/db').getDb();
+  const item = db.prepare('SELECT id FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId!) as { id: string } | undefined;
+  if (!item) { res.status(404).json({ error: 'Inbox item not found' }); return; }
   const { status, assigned_to, internal_note } = req.body as { status?: string; assigned_to?: string; internal_note?: string };
   updateInboxItem(req.params.id, { status, assigned_to, internal_note });
   res.json({ ok: true });
@@ -28,7 +32,7 @@ router.post('/:id/reply', async (req: Request, res: Response) => {
   if (!account || account.studio_id !== req.studioId) { res.status(404).json({ error: 'Account not found' }); return; }
 
   const db = (await import('../utils/db')).getDb();
-  const item = db.prepare('SELECT * FROM inbox_items WHERE id=?').get(req.params.id) as { platform_item_id: string; platform: string } | undefined;
+  const item = db.prepare('SELECT * FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId!) as { platform_item_id: string; platform: string } | undefined;
   if (!item) { res.status(404).json({ error: 'Inbox item not found' }); return; }
 
   try {
@@ -80,9 +84,28 @@ router.post('/:id/reply', async (req: Request, res: Response) => {
 });
 
 router.post('/:id/note', (req: Request, res: Response) => {
+  const db = require('../utils/db').getDb();
+  const item = db.prepare('SELECT id FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId!) as { id: string } | undefined;
+  if (!item) { res.status(404).json({ error: 'Inbox item not found' }); return; }
   const { note } = req.body as { note?: string };
   if (!note) { res.status(400).json({ error: 'note is required' }); return; }
   updateInboxItem(req.params.id, { internal_note: note });
+  res.json({ ok: true });
+});
+
+router.delete('/:id', (req: Request, res: Response) => {
+  const db = require('../utils/db').getDb();
+  const item = db.prepare('SELECT id FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId!) as { id: string } | undefined;
+  if (!item) { res.status(404).json({ error: 'Inbox item not found' }); return; }
+  archiveInboxItem(req.params.id, req.mediafoxUser!.userId);
+  res.json({ ok: true, archived: true });
+});
+
+router.post('/:id/restore', (req: Request, res: Response) => {
+  const db = require('../utils/db').getDb();
+  const item = db.prepare('SELECT id FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NOT NULL').get(req.params.id, req.studioId!) as { id: string } | undefined;
+  if (!item) { res.status(404).json({ error: 'Archived inbox item not found' }); return; }
+  restoreInboxItem(req.params.id);
   res.json({ ok: true });
 });
 

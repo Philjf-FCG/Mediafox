@@ -144,8 +144,9 @@ const ensureSafePreviewTarget = async (rawUrl) => {
     return parsed;
 };
 router.get('/', (req, res) => {
-    const { q } = req.query;
-    const assets = (0, db_1.getMediaAssets)(req.studioId, q).map(a => ({
+    const { q, include_archived } = req.query;
+    const includeArchived = include_archived === '1' || include_archived === 'true';
+    const assets = (0, db_1.getMediaAssets)(req.studioId, q, includeArchived).map(a => ({
         ...a, tags: JSON.parse(a.tags),
         url: `/api/media/${a.id}/file`,
     }));
@@ -184,7 +185,7 @@ router.post('/', upload.single('file'), async (req, res) => {
     res.status(201).json({ asset: { ...asset, tags, url: `/api/media/${asset.id}/file` } });
 });
 router.get('/:id/file', (req, res) => {
-    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=?').get(req.params.id, req.studioId);
+    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
     if (!asset) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -203,7 +204,7 @@ router.put('/:id/tags', (req, res) => {
         res.status(400).json({ error: 'tags must be an array' });
         return;
     }
-    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=?').get(req.params.id, req.studioId);
+    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
     if (!asset) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -212,17 +213,21 @@ router.put('/:id/tags', (req, res) => {
     res.json({ ok: true });
 });
 router.delete('/:id', (req, res) => {
-    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=?').get(req.params.id, req.studioId);
+    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
     if (!asset) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    const filePath = path_1.default.join(STORAGE_PATH(), asset.storage_path);
-    try {
-        fs_1.default.unlinkSync(filePath);
+    (0, db_1.archiveMediaAsset)(req.params.id, req.mediafoxUser.userId);
+    res.json({ ok: true, archived: true });
+});
+router.post('/:id/restore', (req, res) => {
+    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NOT NULL').get(req.params.id, req.studioId);
+    if (!asset) {
+        res.status(404).json({ error: 'Archived asset not found' });
+        return;
     }
-    catch { /* ok if already gone */ }
-    (0, db_1.deleteMediaAsset)(req.params.id);
+    (0, db_1.restoreMediaAsset)(req.params.id);
     res.json({ ok: true });
 });
 // ─── Link preview (OG metadata) ───────────────────────────────────────────────

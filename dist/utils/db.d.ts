@@ -33,6 +33,8 @@ export interface PostRecord {
     status: string;
     scheduled_at: string | null;
     published_at: string | null;
+    archived_at: string | null;
+    archived_by: string | null;
     created_at: string;
     updated_at: string;
 }
@@ -50,9 +52,11 @@ export interface PostVariantRecord {
 }
 export declare const createPost: (p: Pick<PostRecord, "id" | "studio_id" | "author_user_id" | "title">) => PostRecord;
 export declare const getPostById: (id: string) => PostRecord | null;
-export declare const getPostsByStudio: (studioId: string, status?: string) => PostRecord[];
-export declare const getPostsInRange: (studioId: string, from: string, to: string) => PostRecord[];
+export declare const getPostsByStudio: (studioId: string, status?: string, includeArchived?: boolean) => PostRecord[];
+export declare const getPostsInRange: (studioId: string, from: string, to: string, includeArchived?: boolean) => PostRecord[];
 export declare const updatePost: (id: string, fields: Partial<PostRecord>) => void;
+export declare const archivePost: (id: string, actorId: string) => void;
+export declare const restorePost: (id: string) => void;
 export declare const createPostVariant: (v: Omit<PostVariantRecord, "status" | "error_message" | "retry_count" | "published_at" | "platform_post_id">) => PostVariantRecord;
 export declare const getVariantsByPost: (postId: string) => PostVariantRecord[];
 export declare const updateVariant: (id: string, fields: Partial<PostVariantRecord>) => void;
@@ -83,6 +87,8 @@ export interface InboxItem {
     status: string;
     assigned_to: string | null;
     internal_note: string | null;
+    archived_at: string | null;
+    archived_by: string | null;
     received_at: string;
     created_at: string;
 }
@@ -91,12 +97,15 @@ export declare const getInboxItems: (studioId: string, filters?: {
     platform?: string;
     status?: string;
     accountId?: string;
+    includeArchived?: boolean;
 }) => InboxItem[];
 export declare const updateInboxItem: (id: string, fields: {
     status?: string;
     assigned_to?: string;
     internal_note?: string;
 }) => void;
+export declare const archiveInboxItem: (id: string, actorId: string) => void;
+export declare const restoreInboxItem: (id: string) => void;
 export interface MediaAsset {
     id: string;
     studio_id: string;
@@ -109,11 +118,15 @@ export interface MediaAsset {
     height: number | null;
     duration_s: number | null;
     tags: string;
+    archived_at: string | null;
+    archived_by: string | null;
     created_at: string;
 }
-export declare const createMediaAsset: (a: Omit<MediaAsset, "created_at">) => MediaAsset;
-export declare const getMediaAssets: (studioId: string, q?: string) => MediaAsset[];
+export declare const createMediaAsset: (a: Pick<MediaAsset, "id" | "studio_id" | "uploaded_by" | "filename" | "mime_type" | "file_size" | "storage_path" | "width" | "height" | "duration_s" | "tags">) => MediaAsset;
+export declare const getMediaAssets: (studioId: string, q?: string, includeArchived?: boolean) => MediaAsset[];
 export declare const deleteMediaAsset: (id: string) => void;
+export declare const archiveMediaAsset: (id: string, actorId: string) => void;
+export declare const restoreMediaAsset: (id: string) => void;
 export interface StudioMember {
     studio_id: string;
     user_id: string;

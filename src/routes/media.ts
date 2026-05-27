@@ -6,7 +6,7 @@ import axios from 'axios';
 import { lookup } from 'dns/promises';
 import net from 'net';
 import { v4 as uuidv4 } from 'uuid';
-import { createMediaAsset, getMediaAssets, deleteMediaAsset, getDb } from '../utils/db';
+import { createMediaAsset, getMediaAssets, archiveMediaAsset, restoreMediaAsset, getDb } from '../utils/db';
 
 const STORAGE_PATH = () => process.env.MEDIA_STORAGE_PATH ?? path.join(process.cwd(), 'media');
 
@@ -106,8 +106,9 @@ const ensureSafePreviewTarget = async (rawUrl: string): Promise<URL | null> => {
 };
 
 router.get('/', (req: Request, res: Response) => {
-  const { q } = req.query as { q?: string };
-  const assets = getMediaAssets(req.studioId!, q).map(a => ({
+  const { q, include_archived } = req.query as { q?: string; include_archived?: string };
+  const includeArchived = include_archived === '1' || include_archived === 'true';
+  const assets = getMediaAssets(req.studioId!, q, includeArchived).map(a => ({
     ...a, tags: JSON.parse(a.tags) as string[],
     url: `/api/media/${a.id}/file`,
   }));
@@ -146,7 +147,7 @@ router.post('/', upload.single('file'), async (req: Request, res: Response) => {
 });
 
 router.get('/:id/file', (req: Request, res: Response) => {
-  const asset = getDb().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=?').get(req.params.id, req.studioId!) as { storage_path: string; mime_type: string } | undefined;
+  const asset = getDb().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId!) as { storage_path: string; mime_type: string } | undefined;
   if (!asset) { res.status(404).json({ error: 'Not found' }); return; }
   const filePath = path.join(STORAGE_PATH(), asset.storage_path);
   if (!fs.existsSync(filePath)) { res.status(404).json({ error: 'File not found' }); return; }
@@ -157,18 +158,23 @@ router.get('/:id/file', (req: Request, res: Response) => {
 router.put('/:id/tags', (req: Request, res: Response) => {
   const { tags } = req.body as { tags?: string[] };
   if (!Array.isArray(tags)) { res.status(400).json({ error: 'tags must be an array' }); return; }
-  const asset = getDb().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=?').get(req.params.id, req.studioId!) as { id: string } | undefined;
+  const asset = getDb().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId!) as { id: string } | undefined;
   if (!asset) { res.status(404).json({ error: 'Not found' }); return; }
   getDb().prepare('UPDATE media_assets SET tags=? WHERE id=?').run(JSON.stringify(tags), req.params.id);
   res.json({ ok: true });
 });
 
 router.delete('/:id', (req: Request, res: Response) => {
-  const asset = getDb().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=?').get(req.params.id, req.studioId!) as { storage_path: string } | undefined;
+  const asset = getDb().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId!) as { id: string } | undefined;
   if (!asset) { res.status(404).json({ error: 'Not found' }); return; }
-  const filePath = path.join(STORAGE_PATH(), asset.storage_path);
-  try { fs.unlinkSync(filePath); } catch { /* ok if already gone */ }
-  deleteMediaAsset(req.params.id);
+  archiveMediaAsset(req.params.id, req.mediafoxUser!.userId);
+  res.json({ ok: true, archived: true });
+});
+
+router.post('/:id/restore', (req: Request, res: Response) => {
+  const asset = getDb().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NOT NULL').get(req.params.id, req.studioId!) as { id: string } | undefined;
+  if (!asset) { res.status(404).json({ error: 'Archived asset not found' }); return; }
+  restoreMediaAsset(req.params.id);
   res.json({ ok: true });
 });
 

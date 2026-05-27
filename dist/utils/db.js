@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
+exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -28,6 +28,15 @@ const getDb = () => {
     return _db;
 };
 exports.getDb = getDb;
+const hasColumn = (db, table, column) => {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    return cols.some(c => c.name === column);
+};
+const ensureColumn = (db, table, column, sqlType) => {
+    if (!hasColumn(db, table, column)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${sqlType}`);
+    }
+};
 const migrate = (db) => {
     db.exec(`
     CREATE TABLE IF NOT EXISTS accounts (
@@ -59,6 +68,8 @@ const migrate = (db) => {
                          CHECK(status IN ('draft','pending_approval','scheduled','publishing','published','failed','cancelled')),
       scheduled_at     TEXT,
       published_at     TEXT,
+      archived_at      TEXT,
+      archived_by      TEXT,
       created_at       TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -100,6 +111,8 @@ const migrate = (db) => {
       height           INTEGER,
       duration_s       REAL,
       tags             TEXT NOT NULL DEFAULT '[]',
+      archived_at      TEXT,
+      archived_by      TEXT,
       created_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -117,6 +130,8 @@ const migrate = (db) => {
       status               TEXT NOT NULL DEFAULT 'unread' CHECK(status IN ('unread','read','resolved')),
       assigned_to          TEXT,
       internal_note        TEXT,
+      archived_at          TEXT,
+      archived_by          TEXT,
       received_at          TEXT NOT NULL,
       created_at           TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(account_id, platform_item_id)
@@ -176,6 +191,7 @@ const migrate = (db) => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_posts_studio    ON posts(studio_id, status);
+    CREATE INDEX IF NOT EXISTS idx_posts_archived  ON posts(studio_id, archived_at);
     CREATE INDEX IF NOT EXISTS idx_posts_scheduled ON posts(scheduled_at) WHERE status='scheduled';
     CREATE INDEX IF NOT EXISTS idx_variants_post   ON post_variants(post_id);
     CREATE INDEX IF NOT EXISTS idx_queue_fire      ON post_queue(fire_at) WHERE status='pending';
@@ -203,7 +219,9 @@ const migrate = (db) => {
     );
 
     CREATE INDEX IF NOT EXISTS idx_inbox_studio    ON inbox_items(studio_id, status);
+    CREATE INDEX IF NOT EXISTS idx_inbox_archived  ON inbox_items(studio_id, archived_at);
     CREATE INDEX IF NOT EXISTS idx_accounts_studio ON accounts(studio_id);
+    CREATE INDEX IF NOT EXISTS idx_media_archived  ON media_assets(studio_id, archived_at);
     CREATE TABLE IF NOT EXISTS studio_plans (
       studio_id     TEXT PRIMARY KEY,
       plan          TEXT NOT NULL DEFAULT 'pro',
@@ -227,6 +245,13 @@ const migrate = (db) => {
     CREATE INDEX IF NOT EXISTS idx_post_analytics  ON post_analytics(post_variant_id);
     CREATE INDEX IF NOT EXISTS idx_acct_analytics  ON account_analytics(account_id, recorded_at);
   `);
+    // Backward-compatible migration for existing databases created before archive columns existed.
+    ensureColumn(db, 'posts', 'archived_at', 'TEXT');
+    ensureColumn(db, 'posts', 'archived_by', 'TEXT');
+    ensureColumn(db, 'media_assets', 'archived_at', 'TEXT');
+    ensureColumn(db, 'media_assets', 'archived_by', 'TEXT');
+    ensureColumn(db, 'inbox_items', 'archived_at', 'TEXT');
+    ensureColumn(db, 'inbox_items', 'archived_by', 'TEXT');
 };
 const getAccountsByStudio = (studioId) => (0, exports.getDb)().prepare('SELECT * FROM accounts WHERE studio_id = ? ORDER BY platform, display_name').all(studioId);
 exports.getAccountsByStudio = getAccountsByStudio;
@@ -267,13 +292,18 @@ const createPost = (p) => {
 exports.createPost = createPost;
 const getPostById = (id) => (0, exports.getDb)().prepare('SELECT * FROM posts WHERE id=?').get(id) ?? null;
 exports.getPostById = getPostById;
-const getPostsByStudio = (studioId, status) => {
-    if (status)
-        return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? AND status=? ORDER BY created_at DESC').all(studioId, status);
-    return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? ORDER BY created_at DESC').all(studioId);
+const getPostsByStudio = (studioId, status, includeArchived = false) => {
+    if (status) {
+        if (includeArchived)
+            return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? AND status=? ORDER BY created_at DESC').all(studioId, status);
+        return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? AND status=? AND archived_at IS NULL ORDER BY created_at DESC').all(studioId, status);
+    }
+    if (includeArchived)
+        return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? ORDER BY created_at DESC').all(studioId);
+    return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? AND archived_at IS NULL ORDER BY created_at DESC').all(studioId);
 };
 exports.getPostsByStudio = getPostsByStudio;
-const getPostsInRange = (studioId, from, to) => (0, exports.getDb)().prepare(`SELECT * FROM posts WHERE studio_id=? AND (
+const getPostsInRange = (studioId, from, to, includeArchived = false) => (0, exports.getDb)().prepare(`SELECT * FROM posts WHERE studio_id=? ${includeArchived ? '' : 'AND archived_at IS NULL'} AND (
     (scheduled_at >= ? AND scheduled_at <= ?) OR (published_at >= ? AND published_at <= ?)
   ) ORDER BY COALESCE(scheduled_at, published_at)`).all(studioId, from, to, from, to);
 exports.getPostsInRange = getPostsInRange;
@@ -286,6 +316,14 @@ const updatePost = (id, fields) => {
     (0, exports.getDb)().prepare(`UPDATE posts SET ${updates}, updated_at=datetime('now') WHERE id=@id`).run({ ...fields, id });
 };
 exports.updatePost = updatePost;
+const archivePost = (id, actorId) => {
+    (0, exports.getDb)().prepare("UPDATE posts SET archived_at=datetime('now'), archived_by=?, updated_at=datetime('now') WHERE id=?").run(actorId, id);
+};
+exports.archivePost = archivePost;
+const restorePost = (id) => {
+    (0, exports.getDb)().prepare("UPDATE posts SET archived_at=NULL, archived_by=NULL, updated_at=datetime('now') WHERE id=?").run(id);
+};
+exports.restorePost = restorePost;
 const createPostVariant = (v) => {
     (0, exports.getDb)().prepare(`INSERT INTO post_variants (id, post_id, account_id, body, media_ids)
     VALUES (@id, @post_id, @account_id, @body, @media_ids)`).run(v);
@@ -337,6 +375,8 @@ exports.upsertInboxItem = upsertInboxItem;
 const getInboxItems = (studioId, filters = {}) => {
     let q = 'SELECT * FROM inbox_items WHERE studio_id=?';
     const params = [studioId];
+    if (!filters.includeArchived)
+        q += ' AND archived_at IS NULL';
     if (filters.platform) {
         q += ' AND platform=?';
         params.push(filters.platform);
@@ -360,22 +400,43 @@ const updateInboxItem = (id, fields) => {
     (0, exports.getDb)().prepare(`UPDATE inbox_items SET ${cols} WHERE id=@id`).run({ ...fields, id });
 };
 exports.updateInboxItem = updateInboxItem;
+const archiveInboxItem = (id, actorId) => {
+    (0, exports.getDb)().prepare("UPDATE inbox_items SET archived_at=datetime('now'), archived_by=? WHERE id=?").run(actorId, id);
+};
+exports.archiveInboxItem = archiveInboxItem;
+const restoreInboxItem = (id) => {
+    (0, exports.getDb)().prepare("UPDATE inbox_items SET archived_at=NULL, archived_by=NULL WHERE id=?").run(id);
+};
+exports.restoreInboxItem = restoreInboxItem;
 const createMediaAsset = (a) => {
     (0, exports.getDb)().prepare(`INSERT INTO media_assets (id,studio_id,uploaded_by,filename,mime_type,file_size,storage_path,width,height,duration_s,tags)
     VALUES (@id,@studio_id,@uploaded_by,@filename,@mime_type,@file_size,@storage_path,@width,@height,@duration_s,@tags)`).run(a);
     return (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE id=?').get(a.id);
 };
 exports.createMediaAsset = createMediaAsset;
-const getMediaAssets = (studioId, q) => {
-    if (q)
-        return (0, exports.getDb)().prepare("SELECT * FROM media_assets WHERE studio_id=? AND (filename LIKE ? OR tags LIKE ?) ORDER BY created_at DESC").all(studioId, `%${q}%`, `%${q}%`);
-    return (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? ORDER BY created_at DESC').all(studioId);
+const getMediaAssets = (studioId, q, includeArchived = false) => {
+    if (q) {
+        if (includeArchived)
+            return (0, exports.getDb)().prepare("SELECT * FROM media_assets WHERE studio_id=? AND (filename LIKE ? OR tags LIKE ?) ORDER BY created_at DESC").all(studioId, `%${q}%`, `%${q}%`);
+        return (0, exports.getDb)().prepare("SELECT * FROM media_assets WHERE studio_id=? AND archived_at IS NULL AND (filename LIKE ? OR tags LIKE ?) ORDER BY created_at DESC").all(studioId, `%${q}%`, `%${q}%`);
+    }
+    if (includeArchived)
+        return (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? ORDER BY created_at DESC').all(studioId);
+    return (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? AND archived_at IS NULL ORDER BY created_at DESC').all(studioId);
 };
 exports.getMediaAssets = getMediaAssets;
 const deleteMediaAsset = (id) => {
     (0, exports.getDb)().prepare('DELETE FROM media_assets WHERE id=?').run(id);
 };
 exports.deleteMediaAsset = deleteMediaAsset;
+const archiveMediaAsset = (id, actorId) => {
+    (0, exports.getDb)().prepare("UPDATE media_assets SET archived_at=datetime('now'), archived_by=? WHERE id=?").run(actorId, id);
+};
+exports.archiveMediaAsset = archiveMediaAsset;
+const restoreMediaAsset = (id) => {
+    (0, exports.getDb)().prepare("UPDATE media_assets SET archived_at=NULL, archived_by=NULL WHERE id=?").run(id);
+};
+exports.restoreMediaAsset = restoreMediaAsset;
 const getMember = (studioId, userId) => (0, exports.getDb)().prepare('SELECT * FROM studio_members WHERE studio_id=? AND user_id=?').get(studioId, userId) ?? null;
 exports.getMember = getMember;
 const getMembersByStudio = (studioId) => (0, exports.getDb)().prepare('SELECT * FROM studio_members WHERE studio_id=? ORDER BY role, name').all(studioId);

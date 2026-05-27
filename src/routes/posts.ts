@@ -4,7 +4,7 @@ import {
   createPost, getPostById, getPostsByStudio, getPostsInRange, updatePost,
   createPostVariant, getVariantsByPost, getMember,
   createApprovalRequest, resolveApproval, getPendingApproval,
-  audit,
+  audit, archivePost, restorePost,
 } from '../utils/db';
 import { schedulePost, schedulePostNow } from '../scheduler/queue';
 import { checkPostQuota } from '../utils/planGating';
@@ -29,8 +29,9 @@ const postWithVariants = (postId: string) => {
 // ─── List ─────────────────────────────────────────────────────────────────────
 
 router.get('/', (req: Request, res: Response) => {
-  const { status } = req.query as { status?: string };
-  const posts = getPostsByStudio(req.studioId!, status).map(p => ({
+  const { status, include_archived } = req.query as { status?: string; include_archived?: string };
+  const includeArchived = include_archived === '1' || include_archived === 'true';
+  const posts = getPostsByStudio(req.studioId!, status, includeArchived).map(p => ({
     ...p, variants: getVariantsByPost(p.id),
   }));
   res.json({ posts });
@@ -39,9 +40,10 @@ router.get('/', (req: Request, res: Response) => {
 // ─── Calendar range ───────────────────────────────────────────────────────────
 
 router.get('/calendar', (req: Request, res: Response) => {
-  const { from, to } = req.query as { from?: string; to?: string };
+  const { from, to, include_archived } = req.query as { from?: string; to?: string; include_archived?: string };
   if (!from || !to) { res.status(400).json({ error: 'from and to are required' }); return; }
-  const posts = getPostsInRange(req.studioId!, from, to).map(p => ({ ...p, variants: getVariantsByPost(p.id) }));
+  const includeArchived = include_archived === '1' || include_archived === 'true';
+  const posts = getPostsInRange(req.studioId!, from, to, includeArchived).map(p => ({ ...p, variants: getVariantsByPost(p.id) }));
   res.json({ posts });
 });
 
@@ -66,8 +68,10 @@ router.post('/', (req: Request, res: Response) => {
 // ─── Get one ──────────────────────────────────────────────────────────────────
 
 router.get('/:id', (req: Request, res: Response) => {
+  const includeArchived = req.query.include_archived === '1' || req.query.include_archived === 'true';
   const post = postWithVariants(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at && !includeArchived) { res.status(404).json({ error: 'Not found' }); return; }
   res.json({ post });
 });
 
@@ -76,6 +80,7 @@ router.get('/:id', (req: Request, res: Response) => {
 router.put('/:id', (req: Request, res: Response) => {
   const post = getPostById(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Cannot edit an archived post' }); return; }
   if (!['draft', 'failed'].includes(post.status)) { res.status(409).json({ error: 'Can only edit drafts or failed posts' }); return; }
 
   const { title, scheduled_at, variants } = req.body as {
@@ -107,6 +112,7 @@ router.post('/:id/publish', async (req: Request, res: Response) => {
   if (!requireRole(req, res, 'owner', 'manager', 'editor')) return;
   const post = getPostById(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Cannot publish an archived post' }); return; }
   if (!['draft', 'failed'].includes(post.status)) { res.status(409).json({ error: 'Post is not in a publishable state' }); return; }
 
   updatePost(post.id, { status: 'scheduled', scheduled_at: new Date().toISOString() });
@@ -123,6 +129,7 @@ router.post('/:id/schedule', async (req: Request, res: Response) => {
   if (!requireRole(req, res, 'owner', 'manager', 'editor')) return;
   const post = getPostById(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Cannot schedule an archived post' }); return; }
   if (!['draft', 'failed'].includes(post.status)) { res.status(409).json({ error: 'Post is not in a schedulable state' }); return; }
 
   const quota = await checkPostQuota(req.studioId!);
@@ -150,6 +157,7 @@ router.post('/:id/schedule', async (req: Request, res: Response) => {
 router.post('/:id/submit', (req: Request, res: Response) => {
   const post = getPostById(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Cannot submit an archived post' }); return; }
   if (post.status !== 'draft') { res.status(409).json({ error: 'Only drafts can be submitted' }); return; }
   if (getPendingApproval(post.id)) { res.status(409).json({ error: 'Already pending approval' }); return; }
 
@@ -166,6 +174,7 @@ router.post('/:id/approve', (req: Request, res: Response) => {
   if (!requireRole(req, res, 'owner', 'manager')) return;
   const post = getPostById(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Cannot approve an archived post' }); return; }
   const approval = getPendingApproval(post.id);
   if (!approval) { res.status(404).json({ error: 'No pending approval for this post' }); return; }
 
@@ -191,6 +200,7 @@ router.post('/:id/reject', (req: Request, res: Response) => {
   if (!requireRole(req, res, 'owner', 'manager')) return;
   const post = getPostById(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Cannot reject an archived post' }); return; }
   const approval = getPendingApproval(post.id);
   if (!approval) { res.status(404).json({ error: 'No pending approval' }); return; }
 
@@ -208,6 +218,7 @@ router.post('/:id/reject', (req: Request, res: Response) => {
 router.post('/:id/duplicate', (req: Request, res: Response) => {
   const post = getPostById(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Cannot duplicate an archived post' }); return; }
 
   const newPost = createPost({
     id: uuidv4(),
@@ -230,12 +241,21 @@ router.post('/:id/duplicate', (req: Request, res: Response) => {
 router.delete('/:id', (req: Request, res: Response) => {
   const post = getPostById(req.params.id);
   if (!post || post.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
-  if (post.status === 'published') { res.status(409).json({ error: 'Cannot delete a published post' }); return; }
+  if (post.archived_at) { res.status(409).json({ error: 'Post is already archived' }); return; }
 
-  updatePost(post.id, { status: 'cancelled' });
+  if (post.status !== 'published') updatePost(post.id, { status: 'cancelled' });
+  archivePost(post.id, req.mediafoxUser!.userId);
   getDb().prepare("UPDATE post_queue SET status='dead' WHERE post_variant_id IN (SELECT id FROM post_variants WHERE post_id=?) AND status='pending'").run(post.id);
-  audit(req.studioId!, req.mediafoxUser!.userId, 'cancel', 'post', post.id);
-  res.json({ ok: true });
+  audit(req.studioId!, req.mediafoxUser!.userId, 'archive', 'post', post.id);
+  res.json({ ok: true, archived: true });
+});
+
+router.post('/:id/restore', (req: Request, res: Response) => {
+  const post = getPostById(req.params.id);
+  if (!post || post.studio_id !== req.studioId || !post.archived_at) { res.status(404).json({ error: 'Archived post not found' }); return; }
+  restorePost(post.id);
+  audit(req.studioId!, req.mediafoxUser!.userId, 'restore', 'post', post.id);
+  res.json({ post: postWithVariants(post.id) });
 });
 
 // Inline helper to avoid circular import
