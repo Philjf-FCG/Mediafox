@@ -9,6 +9,8 @@ Track submission readiness and status for:
 - LinkedIn Community Management API application
 - Discord bot verification (100+ servers)
 
+Operator runbook: DOCS/12-Operator-API-Approval-Runbook.md
+
 ## Status Board
 
 | Work Item | Issue | Status | Owner | Blocking On | Notes |
@@ -29,6 +31,7 @@ Track submission readiness and status for:
 
 ## Submission Log
 - 2026-05-27: Prepared approval packets and templates for Meta, LinkedIn, Discord.
+- 2026-05-27: Added consolidated operator runbook with copy-ready portal text and completion log table.
 
 ## Next Action Queue
 1. Complete Meta app sandbox configuration in portal (DOCS/08).
