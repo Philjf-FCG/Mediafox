@@ -53,6 +53,7 @@ const media_1 = __importDefault(require("./routes/media"));
 const team_1 = __importDefault(require("./routes/team"));
 const notifications_1 = __importDefault(require("./routes/notifications"));
 const ai_1 = __importDefault(require("./routes/ai"));
+const youtube_1 = __importDefault(require("./routes/youtube"));
 const normalizeOrigin = (origin) => origin.trim().replace(/\/+$/, '');
 const loadAllowedOrigins = () => {
     const envOrigins = (process.env.CORS_ALLOWED_ORIGINS || '')
@@ -142,6 +143,7 @@ const createApp = () => {
     authed.use('/team', team_1.default);
     authed.use('/notifications', notifications_1.default);
     authed.use('/ai', ai_1.default);
+    authed.use('/youtube', youtube_1.default);
     app.use('/api', authed);
     // Serve React client in production
     const clientBuild = path_1.default.join(__dirname, '..', 'client', 'build');

@@ -14,6 +14,7 @@ import mediaRoutes from './routes/media';
 import teamRoutes from './routes/team';
 import notificationRoutes from './routes/notifications';
 import aiRoutes from './routes/ai';
+import youtubeRoutes from './routes/youtube';
 
 const normalizeOrigin = (origin: string): string => origin.trim().replace(/\/+$/, '');
 
@@ -99,6 +100,7 @@ export const createApp = (): express.Application => {
   authed.use('/team', teamRoutes);
   authed.use('/notifications', notificationRoutes);
   authed.use('/ai', aiRoutes);
+  authed.use('/youtube', youtubeRoutes);
 
   app.use('/api', authed);
 
