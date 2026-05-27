@@ -3,6 +3,33 @@ import { getMember, getMembersByStudio, upsertMember, removeMember } from '../ut
 
 const router = Router();
 
+router.post('/bootstrap', (req: Request, res: Response) => {
+  const studioId = req.studioId!;
+  const user = req.mediafoxUser!;
+  const me = getMember(studioId, user.userId);
+  if (me) {
+    res.json({ ok: true, bootstrapped: false, role: me.role });
+    return;
+  }
+
+  const members = getMembersByStudio(studioId);
+  if (members.length > 0) {
+    res.status(403).json({ error: 'Studio already has members. Ask an owner or manager to invite you.' });
+    return;
+  }
+
+  upsertMember({
+    studio_id: studioId,
+    user_id: user.userId,
+    email: user.email,
+    name: user.name,
+    role: 'owner',
+    joined_at: new Date().toISOString(),
+  });
+
+  res.status(201).json({ ok: true, bootstrapped: true, role: 'owner' });
+});
+
 const requireOwnerOrManager = (req: Request, res: Response): boolean => {
   const m = getMember(req.studioId!, req.mediafoxUser!.userId);
   if (!m || !['owner', 'manager'].includes(m.role)) {

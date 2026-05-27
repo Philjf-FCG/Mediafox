@@ -1,8 +1,8 @@
 import { NextFunction, Request, Response } from 'express';
-import { ensureOwner } from '../utils/db';
+import { getMember } from '../utils/db';
 
 // Used for routes where studio context is optional (e.g. OAuth callbacks that extract studioId from state param)
-export const attachStudioOptional = (req: Request, _res: Response, next: NextFunction): void => {
+export const attachStudioOptional = (req: Request, res: Response, next: NextFunction): void => {
   const user = req.mediafoxUser;
   if (!user) { next(); return; }
   const studioId =
@@ -10,8 +10,12 @@ export const attachStudioOptional = (req: Request, _res: Response, next: NextFun
     (req.query.studio_id as string) ||
     (req.body?.studio_id as string);
   if (studioId) {
+    const member = getMember(studioId, user.userId);
+    if (!member) {
+      res.status(403).json({ error: 'You do not have access to this studio' });
+      return;
+    }
     req.studioId = studioId;
-    ensureOwner(studioId, user.userId, user.email, user.name);
   }
   next();
 };
@@ -36,8 +40,15 @@ export const attachStudio = (req: Request, res: Response, next: NextFunction): v
 
   req.studioId = studioId;
 
-  // Ensure the authenticated user exists as a member (creates owner on first visit)
-  ensureOwner(studioId, user.userId, user.email, user.name);
+  // Allow first-time studio bootstrap only on the dedicated endpoint.
+  const allowBootstrap = req.method === 'POST' && req.path === '/bootstrap' && req.baseUrl.endsWith('/team');
+  if (!allowBootstrap) {
+    const member = getMember(studioId, user.userId);
+    if (!member) {
+      res.status(403).json({ error: 'You do not have access to this studio' });
+      return;
+    }
+  }
 
   next();
 };
