@@ -1,5 +1,12 @@
 import { Router, Request, Response } from 'express';
-import { getMember, getMembersByStudio, upsertMember, removeMember } from '../utils/db';
+import {
+  getMember,
+  getMembersByStudio,
+  upsertMember,
+  removeMember,
+  getStudioIntegrationSettingsSummary,
+  upsertStudioIntegrationSettings,
+} from '../utils/db';
 
 const router = Router();
 
@@ -43,6 +50,62 @@ router.get('/', (req: Request, res: Response) => {
   const members = getMembersByStudio(req.studioId!);
   const me = getMember(req.studioId!, req.mediafoxUser!.userId);
   res.json({ members, my_role: me?.role ?? 'viewer' });
+});
+
+router.get('/integration-settings', (req: Request, res: Response) => {
+  if (!requireOwnerOrManager(req, res)) return;
+
+  const saved = getStudioIntegrationSettingsSummary(req.studioId!);
+  const effective = {
+    linkedin_client_id: saved.linkedin_client_id || process.env.LINKEDIN_CLIENT_ID || null,
+    linkedin_redirect_uri: saved.linkedin_redirect_uri || process.env.LINKEDIN_REDIRECT_URI || null,
+    linkedin_scopes: saved.linkedin_scopes || process.env.LINKEDIN_SCOPES || null,
+    meta_app_id: saved.meta_app_id || process.env.META_APP_ID || null,
+    meta_redirect_uri: saved.meta_redirect_uri || process.env.META_REDIRECT_URI || null,
+    meta_scopes: saved.meta_scopes || null,
+    has_linkedin_client_secret: saved.has_linkedin_client_secret || Boolean(process.env.LINKEDIN_CLIENT_SECRET),
+    has_meta_app_secret: saved.has_meta_app_secret || Boolean(process.env.META_APP_SECRET),
+  };
+
+  res.json({ saved, effective });
+});
+
+router.put('/integration-settings', (req: Request, res: Response) => {
+  if (!requireOwnerOrManager(req, res)) return;
+
+  const {
+    linkedin_client_id,
+    linkedin_client_secret,
+    linkedin_redirect_uri,
+    linkedin_scopes,
+    meta_app_id,
+    meta_app_secret,
+    meta_redirect_uri,
+    meta_scopes,
+  } = req.body as {
+    linkedin_client_id?: string;
+    linkedin_client_secret?: string;
+    linkedin_redirect_uri?: string;
+    linkedin_scopes?: string;
+    meta_app_id?: string;
+    meta_app_secret?: string;
+    meta_redirect_uri?: string;
+    meta_scopes?: string;
+  };
+
+  upsertStudioIntegrationSettings(req.studioId!, req.mediafoxUser!.userId, {
+    linkedin_client_id,
+    linkedin_client_secret,
+    linkedin_redirect_uri,
+    linkedin_scopes,
+    meta_app_id,
+    meta_app_secret,
+    meta_redirect_uri,
+    meta_scopes,
+  });
+
+  const saved = getStudioIntegrationSettingsSummary(req.studioId!);
+  res.json({ ok: true, saved });
 });
 
 router.post('/invite', (req: Request, res: Response) => {

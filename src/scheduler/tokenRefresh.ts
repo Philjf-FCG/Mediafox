@@ -1,8 +1,23 @@
 import axios from 'axios';
-import { getDb, updateAccountTokens, updateAccountStatus } from '../utils/db';
+import { getDb, updateAccountTokens, updateAccountStatus, getStudioIntegrationSettings } from '../utils/db';
 import { decryptToken, encryptToken } from '../utils/crypto';
 
-interface AccountRow { id: string; platform: string; access_token: string; refresh_token: string | null; token_expires_at: string | null; extra: string; }
+interface AccountRow { id: string; studio_id: string; platform: string; access_token: string; refresh_token: string | null; token_expires_at: string | null; extra: string; }
+
+const getStudioOAuthConfig = (studioId: string): {
+  linkedinClientId: string;
+  linkedinClientSecret: string;
+  metaAppId: string;
+  metaAppSecret: string;
+} => {
+  const stored = getStudioIntegrationSettings(studioId);
+  return {
+    linkedinClientId: (stored?.linkedin_client_id || process.env.LINKEDIN_CLIENT_ID || '').trim(),
+    linkedinClientSecret: (stored?.linkedin_client_secret || process.env.LINKEDIN_CLIENT_SECRET || '').trim(),
+    metaAppId: (stored?.meta_app_id || process.env.META_APP_ID || '').trim(),
+    metaAppSecret: (stored?.meta_app_secret || process.env.META_APP_SECRET || '').trim(),
+  };
+};
 
 const refreshBluesky = async (account: AccountRow): Promise<void> => {
   if (!account.refresh_token) {
@@ -24,6 +39,13 @@ const refreshLinkedIn = async (account: AccountRow): Promise<void> => {
     updateAccountStatus(account.id, 'expired');
     return;
   }
+
+  const cfg = getStudioOAuthConfig(account.studio_id);
+  if (!cfg.linkedinClientId || !cfg.linkedinClientSecret) {
+    updateAccountStatus(account.id, 'error');
+    return;
+  }
+
   try {
     const refreshToken = decryptToken(account.refresh_token);
     const res = await axios.post<{ access_token: string; expires_in: number; refresh_token?: string }>(
@@ -31,8 +53,8 @@ const refreshLinkedIn = async (account: AccountRow): Promise<void> => {
       new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshToken,
-        client_id: process.env.LINKEDIN_CLIENT_ID!,
-        client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
+        client_id: cfg.linkedinClientId,
+        client_secret: cfg.linkedinClientSecret,
       }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 },
     );
@@ -62,15 +84,16 @@ export const refreshExpiringTokens = async (): Promise<void> => {
       else if (account.platform === 'linkedin') await refreshLinkedIn(account);
       // Meta tokens can be exchanged for new long-lived tokens before expiry
       else if (account.platform === 'facebook' || account.platform === 'instagram') {
-        if (!process.env.META_APP_ID || !process.env.META_APP_SECRET) continue;
+        const cfg = getStudioOAuthConfig(account.studio_id);
+        if (!cfg.metaAppId || !cfg.metaAppSecret) continue;
         const accessToken = decryptToken(account.access_token);
         const res = await axios.get<{ access_token: string; expires_in: number }>(
           'https://graph.facebook.com/v19.0/oauth/access_token',
           {
             params: {
               grant_type: 'fb_exchange_token',
-              client_id: process.env.META_APP_ID,
-              client_secret: process.env.META_APP_SECRET,
+              client_id: cfg.metaAppId,
+              client_secret: cfg.metaAppSecret,
               fb_exchange_token: accessToken,
             },
             timeout: 10000,

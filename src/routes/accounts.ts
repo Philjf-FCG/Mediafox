@@ -3,7 +3,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  getAccountsByStudio, getAccountById, upsertAccount, deleteAccount, updateAccountTokens, getMember,
+  getAccountsByStudio, getAccountById, upsertAccount, deleteAccount, updateAccountTokens, getMember, getStudioIntegrationSettings,
 } from '../utils/db';
 import { encryptToken } from '../utils/crypto';
 import { checkRateLimit } from '../utils/rateLimit';
@@ -12,12 +12,44 @@ import { createBlueskySession } from '../adapters/bluesky';
 
 const router = Router();
 
-const getLinkedInScopes = (): string[] => {
-  const configured = (process.env.LINKEDIN_SCOPES || '').split(',').map(s => s.trim()).filter(Boolean);
+const getLinkedInScopes = (configuredRaw?: string | null): string[] => {
+  const configured = (configuredRaw || process.env.LINKEDIN_SCOPES || '').split(',').map(s => s.trim()).filter(Boolean);
   if (configured.length > 0) return configured;
 
   // Avoid deprecated r_basicprofile; use modern lite profile defaults.
   return ['r_liteprofile', 'w_member_social'];
+};
+
+const getMetaScopes = (configuredRaw?: string | null): string =>
+  (configuredRaw || 'pages_manage_posts,pages_read_engagement,pages_show_list,instagram_basic,instagram_content_publish,instagram_manage_insights')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .join(',');
+
+interface StudioOAuthConfig {
+  linkedinClientId: string;
+  linkedinClientSecret: string;
+  linkedinRedirectUri: string;
+  linkedinScopes: string[];
+  metaAppId: string;
+  metaAppSecret: string;
+  metaRedirectUri: string;
+  metaScopes: string;
+}
+
+const getStudioOAuthConfig = (studioId: string): StudioOAuthConfig => {
+  const stored = getStudioIntegrationSettings(studioId);
+  return {
+    linkedinClientId: (stored?.linkedin_client_id || process.env.LINKEDIN_CLIENT_ID || '').trim(),
+    linkedinClientSecret: (stored?.linkedin_client_secret || process.env.LINKEDIN_CLIENT_SECRET || '').trim(),
+    linkedinRedirectUri: (stored?.linkedin_redirect_uri || process.env.LINKEDIN_REDIRECT_URI || '').trim(),
+    linkedinScopes: getLinkedInScopes(stored?.linkedin_scopes),
+    metaAppId: (stored?.meta_app_id || process.env.META_APP_ID || '').trim(),
+    metaAppSecret: (stored?.meta_app_secret || process.env.META_APP_SECRET || '').trim(),
+    metaRedirectUri: (stored?.meta_redirect_uri || process.env.META_REDIRECT_URI || '').trim(),
+    metaScopes: getMetaScopes(stored?.meta_scopes),
+  };
 };
 
 type OAuthPlatform = 'slack' | 'meta' | 'linkedin';
@@ -268,8 +300,10 @@ router.get('/connect/slack/callback', async (req: Request, res: Response) => {
 // ─── Meta OAuth (Facebook + Instagram) ───────────────────────────────────────
 
 router.get('/connect/meta', (req: Request, res: Response) => {
-  const appId = process.env.META_APP_ID;
-  if (!appId) { res.status(503).json({ error: 'Meta integration not configured. META_APP_ID is not set.' }); return; }
+  const cfg = getStudioOAuthConfig(req.studioId!);
+  if (!cfg.metaAppId) { res.status(503).json({ error: 'Meta integration not configured. Set META app ID in Settings -> Integration OAuth.' }); return; }
+  if (!cfg.metaRedirectUri) { res.status(503).json({ error: 'Meta integration not configured. Set Meta redirect URI in Settings -> Integration OAuth.' }); return; }
+  if (!cfg.metaAppSecret) { res.status(503).json({ error: 'Meta integration not configured. Set Meta app secret in Settings -> Integration OAuth.' }); return; }
   if (!getOauthStateSecret()) { res.status(503).json({ error: 'OAuth state signing is not configured' }); return; }
   const state = signOauthState({
     studioId: req.studioId!,
@@ -277,9 +311,7 @@ router.get('/connect/meta', (req: Request, res: Response) => {
     userId: req.mediafoxUser!.userId,
     platform: 'meta',
   });
-  const scopes = 'pages_manage_posts,pages_read_engagement,pages_show_list,instagram_basic,instagram_content_publish,instagram_manage_insights';
-  const redirect = process.env.META_REDIRECT_URI;
-  res.json({ url: `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&scope=${scopes}&state=${state}&response_type=code` });
+  res.json({ url: `https://www.facebook.com/v19.0/dialog/oauth?client_id=${cfg.metaAppId}&redirect_uri=${cfg.metaRedirectUri}&scope=${cfg.metaScopes}&state=${state}&response_type=code` });
 });
 
 router.get('/connect/meta/callback', async (req: Request, res: Response) => {
@@ -290,14 +322,16 @@ router.get('/connect/meta/callback', async (req: Request, res: Response) => {
   if (parsed.userId !== req.mediafoxUser!.userId) { res.status(403).send('Callback is not for this user'); return; }
   if (!getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
   const { studioId, type } = parsed;
+  const cfg = getStudioOAuthConfig(studioId);
+  if (!cfg.metaAppId || !cfg.metaAppSecret || !cfg.metaRedirectUri) { res.status(503).send('Meta integration is not fully configured for this studio'); return; }
 
   try {
     // Exchange code for short-lived token
     const tokenRes = await axios.get<{ access_token: string }>('https://graph.facebook.com/v19.0/oauth/access_token', {
       params: {
-        client_id: process.env.META_APP_ID,
-        client_secret: process.env.META_APP_SECRET,
-        redirect_uri: process.env.META_REDIRECT_URI,
+        client_id: cfg.metaAppId,
+        client_secret: cfg.metaAppSecret,
+        redirect_uri: cfg.metaRedirectUri,
         code,
       },
       timeout: 15000,
@@ -308,8 +342,8 @@ router.get('/connect/meta/callback', async (req: Request, res: Response) => {
     const llRes = await axios.get<{ access_token: string; expires_in: number }>('https://graph.facebook.com/v19.0/oauth/access_token', {
       params: {
         grant_type: 'fb_exchange_token',
-        client_id: process.env.META_APP_ID,
-        client_secret: process.env.META_APP_SECRET,
+        client_id: cfg.metaAppId,
+        client_secret: cfg.metaAppSecret,
         fb_exchange_token: shortToken,
       },
       timeout: 15000,
@@ -374,8 +408,10 @@ router.get('/connect/meta/callback', async (req: Request, res: Response) => {
 // ─── LinkedIn OAuth ───────────────────────────────────────────────────────────
 
 router.get('/connect/linkedin', (req: Request, res: Response) => {
-  const clientId = process.env.LINKEDIN_CLIENT_ID;
-  if (!clientId) { res.status(503).json({ error: 'LinkedIn integration not configured. LINKEDIN_CLIENT_ID is not set.' }); return; }
+  const cfg = getStudioOAuthConfig(req.studioId!);
+  if (!cfg.linkedinClientId) { res.status(503).json({ error: 'LinkedIn integration not configured. Set LinkedIn client ID in Settings -> Integration OAuth.' }); return; }
+  if (!cfg.linkedinRedirectUri) { res.status(503).json({ error: 'LinkedIn integration not configured. Set LinkedIn redirect URI in Settings -> Integration OAuth.' }); return; }
+  if (!cfg.linkedinClientSecret) { res.status(503).json({ error: 'LinkedIn integration not configured. Set LinkedIn client secret in Settings -> Integration OAuth.' }); return; }
   if (!getOauthStateSecret()) { res.status(503).json({ error: 'OAuth state signing is not configured' }); return; }
   const state = signOauthState({
     studioId: req.studioId!,
@@ -383,9 +419,8 @@ router.get('/connect/linkedin', (req: Request, res: Response) => {
     userId: req.mediafoxUser!.userId,
     platform: 'linkedin',
   });
-  const scopes = getLinkedInScopes().join(' ');
-  const redirect = process.env.LINKEDIN_REDIRECT_URI;
-  res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${redirect}&scope=${encodeURIComponent(scopes)}&state=${state}` });
+  const scopes = cfg.linkedinScopes.join(' ');
+  res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${cfg.linkedinClientId}&redirect_uri=${cfg.linkedinRedirectUri}&scope=${encodeURIComponent(scopes)}&state=${state}` });
 });
 
 router.get('/connect/linkedin/callback', async (req: Request, res: Response) => {
@@ -396,6 +431,8 @@ router.get('/connect/linkedin/callback', async (req: Request, res: Response) => 
   if (parsed.userId !== req.mediafoxUser!.userId) { res.status(403).send('Callback is not for this user'); return; }
   if (!getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
   const { studioId, type } = parsed;
+  const cfg = getStudioOAuthConfig(studioId);
+  if (!cfg.linkedinClientId || !cfg.linkedinClientSecret || !cfg.linkedinRedirectUri) { res.status(503).send('LinkedIn integration is not fully configured for this studio'); return; }
 
   try {
     const tokenRes = await axios.post<{ access_token: string; expires_in: number }>(
@@ -403,9 +440,9 @@ router.get('/connect/linkedin/callback', async (req: Request, res: Response) => 
       new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        client_id: process.env.LINKEDIN_CLIENT_ID!,
-        client_secret: process.env.LINKEDIN_CLIENT_SECRET!,
-        redirect_uri: process.env.LINKEDIN_REDIRECT_URI!,
+        client_id: cfg.linkedinClientId,
+        client_secret: cfg.linkedinClientSecret,
+        redirect_uri: cfg.linkedinRedirectUri,
       }),
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 15000 },
     );
@@ -428,7 +465,7 @@ router.get('/connect/linkedin/callback', async (req: Request, res: Response) => 
       access_token: encryptToken(access_token),
       refresh_token: null,
       token_expires_at: expiresAt,
-      scope: getLinkedInScopes().join(','),
+      scope: cfg.linkedinScopes.join(','),
       extra: JSON.stringify({}),
     });
 

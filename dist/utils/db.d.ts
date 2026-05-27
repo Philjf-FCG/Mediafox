@@ -203,6 +203,35 @@ export declare const getTikTokAssistsByPost: (studioId: string, postId: string) 
 export declare const markTikTokAssistPublished: (id: string, publishUrl: string) => void;
 export declare const getLocalStudioPlan: (studioId: string) => string | null;
 export declare const setLocalStudioPlan: (studioId: string, plan: string, setBy?: string) => void;
+export interface StudioIntegrationSettings {
+    studio_id: string;
+    linkedin_client_id: string | null;
+    linkedin_client_secret: string | null;
+    linkedin_redirect_uri: string | null;
+    linkedin_scopes: string | null;
+    meta_app_id: string | null;
+    meta_app_secret: string | null;
+    meta_redirect_uri: string | null;
+    meta_scopes: string | null;
+    updated_by: string | null;
+    updated_at: string;
+}
+export interface StudioIntegrationSettingsInput {
+    linkedin_client_id?: string;
+    linkedin_client_secret?: string;
+    linkedin_redirect_uri?: string;
+    linkedin_scopes?: string;
+    meta_app_id?: string;
+    meta_app_secret?: string;
+    meta_redirect_uri?: string;
+    meta_scopes?: string;
+}
+export declare const getStudioIntegrationSettings: (studioId: string) => StudioIntegrationSettings | null;
+export declare const getStudioIntegrationSettingsSummary: (studioId: string) => Omit<StudioIntegrationSettings, "linkedin_client_secret" | "meta_app_secret"> & {
+    has_linkedin_client_secret: boolean;
+    has_meta_app_secret: boolean;
+};
+export declare const upsertStudioIntegrationSettings: (studioId: string, updatedBy: string, input: StudioIntegrationSettingsInput) => void;
 export interface UserRecord {
     id: string;
     email: string;

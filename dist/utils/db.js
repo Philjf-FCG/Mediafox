@@ -4,10 +4,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createTikTokAssist = exports.markRedditAssistPublished = exports.getRedditAssistsByPost = exports.createRedditAssist = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.purgeArchivedContentOlderThan = exports.getMediaAssetByHash = exports.getMediaAssetBySource = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
-exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markTikTokAssistPublished = exports.getTikTokAssistsByPost = void 0;
+exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.upsertStudioIntegrationSettings = exports.getStudioIntegrationSettingsSummary = exports.getStudioIntegrationSettings = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markTikTokAssistPublished = exports.getTikTokAssistsByPost = void 0;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
+const crypto_1 = require("./crypto");
 let _db = null;
 const getLocalDbPath = () => {
     if (process.env.DATABASE_PATH)
@@ -262,6 +263,20 @@ const migrate = (db) => {
       plan          TEXT NOT NULL DEFAULT 'pro',
       set_by        TEXT,
       set_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_integration_settings (
+      studio_id                  TEXT PRIMARY KEY,
+      linkedin_client_id         TEXT,
+      linkedin_client_secret_enc TEXT,
+      linkedin_redirect_uri      TEXT,
+      linkedin_scopes            TEXT,
+      meta_app_id                TEXT,
+      meta_app_secret_enc        TEXT,
+      meta_redirect_uri          TEXT,
+      meta_scopes                TEXT,
+      updated_by                 TEXT,
+      updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -598,6 +613,132 @@ const setLocalStudioPlan = (studioId, plan, setBy) => {
         .run(studioId, plan, setBy ?? null);
 };
 exports.setLocalStudioPlan = setLocalStudioPlan;
+const normalizeOptional = (v) => {
+    if (v === undefined)
+        return undefined;
+    const t = v.trim();
+    return t ? t : null;
+};
+const getStudioIntegrationSettings = (studioId) => {
+    const row = (0, exports.getDb)().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId);
+    if (!row)
+        return null;
+    const decryptSafe = (value) => {
+        if (!value)
+            return null;
+        try {
+            return (0, crypto_1.decryptToken)(value);
+        }
+        catch {
+            return null;
+        }
+    };
+    return {
+        studio_id: row.studio_id,
+        linkedin_client_id: row.linkedin_client_id,
+        linkedin_client_secret: decryptSafe(row.linkedin_client_secret_enc),
+        linkedin_redirect_uri: row.linkedin_redirect_uri,
+        linkedin_scopes: row.linkedin_scopes,
+        meta_app_id: row.meta_app_id,
+        meta_app_secret: decryptSafe(row.meta_app_secret_enc),
+        meta_redirect_uri: row.meta_redirect_uri,
+        meta_scopes: row.meta_scopes,
+        updated_by: row.updated_by,
+        updated_at: row.updated_at,
+    };
+};
+exports.getStudioIntegrationSettings = getStudioIntegrationSettings;
+const getStudioIntegrationSettingsSummary = (studioId) => {
+    const row = (0, exports.getDb)().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId);
+    if (!row) {
+        return {
+            studio_id: studioId,
+            linkedin_client_id: null,
+            linkedin_redirect_uri: null,
+            linkedin_scopes: null,
+            meta_app_id: null,
+            meta_redirect_uri: null,
+            meta_scopes: null,
+            updated_by: null,
+            updated_at: new Date(0).toISOString(),
+            has_linkedin_client_secret: false,
+            has_meta_app_secret: false,
+        };
+    }
+    return {
+        studio_id: row.studio_id,
+        linkedin_client_id: row.linkedin_client_id,
+        linkedin_redirect_uri: row.linkedin_redirect_uri,
+        linkedin_scopes: row.linkedin_scopes,
+        meta_app_id: row.meta_app_id,
+        meta_redirect_uri: row.meta_redirect_uri,
+        meta_scopes: row.meta_scopes,
+        updated_by: row.updated_by,
+        updated_at: row.updated_at,
+        has_linkedin_client_secret: Boolean(row.linkedin_client_secret_enc),
+        has_meta_app_secret: Boolean(row.meta_app_secret_enc),
+    };
+};
+exports.getStudioIntegrationSettingsSummary = getStudioIntegrationSettingsSummary;
+const upsertStudioIntegrationSettings = (studioId, updatedBy, input) => {
+    const existing = (0, exports.getDb)().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId);
+    const nextLinkedInSecretEnc = input.linkedin_client_secret === undefined
+        ? (existing?.linkedin_client_secret_enc ?? null)
+        : (normalizeOptional(input.linkedin_client_secret) ? (0, crypto_1.encryptToken)(normalizeOptional(input.linkedin_client_secret)) : null);
+    const nextMetaSecretEnc = input.meta_app_secret === undefined
+        ? (existing?.meta_app_secret_enc ?? null)
+        : (normalizeOptional(input.meta_app_secret) ? (0, crypto_1.encryptToken)(normalizeOptional(input.meta_app_secret)) : null);
+    (0, exports.getDb)().prepare(`
+    INSERT INTO studio_integration_settings (
+      studio_id,
+      linkedin_client_id,
+      linkedin_client_secret_enc,
+      linkedin_redirect_uri,
+      linkedin_scopes,
+      meta_app_id,
+      meta_app_secret_enc,
+      meta_redirect_uri,
+      meta_scopes,
+      updated_by,
+      updated_at
+    ) VALUES (
+      @studio_id,
+      @linkedin_client_id,
+      @linkedin_client_secret_enc,
+      @linkedin_redirect_uri,
+      @linkedin_scopes,
+      @meta_app_id,
+      @meta_app_secret_enc,
+      @meta_redirect_uri,
+      @meta_scopes,
+      @updated_by,
+      datetime('now')
+    )
+    ON CONFLICT(studio_id) DO UPDATE SET
+      linkedin_client_id=excluded.linkedin_client_id,
+      linkedin_client_secret_enc=excluded.linkedin_client_secret_enc,
+      linkedin_redirect_uri=excluded.linkedin_redirect_uri,
+      linkedin_scopes=excluded.linkedin_scopes,
+      meta_app_id=excluded.meta_app_id,
+      meta_app_secret_enc=excluded.meta_app_secret_enc,
+      meta_redirect_uri=excluded.meta_redirect_uri,
+      meta_scopes=excluded.meta_scopes,
+      updated_by=excluded.updated_by,
+      updated_at=excluded.updated_at
+  `).run({
+        studio_id: studioId,
+        linkedin_client_id: normalizeOptional(input.linkedin_client_id) ?? existing?.linkedin_client_id ?? null,
+        linkedin_client_secret_enc: nextLinkedInSecretEnc,
+        linkedin_redirect_uri: normalizeOptional(input.linkedin_redirect_uri) ?? existing?.linkedin_redirect_uri ?? null,
+        linkedin_scopes: normalizeOptional(input.linkedin_scopes) ?? existing?.linkedin_scopes ?? null,
+        meta_app_id: normalizeOptional(input.meta_app_id) ?? existing?.meta_app_id ?? null,
+        meta_app_secret_enc: nextMetaSecretEnc,
+        meta_redirect_uri: normalizeOptional(input.meta_redirect_uri) ?? existing?.meta_redirect_uri ?? null,
+        meta_scopes: normalizeOptional(input.meta_scopes) ?? existing?.meta_scopes ?? null,
+        updated_by: updatedBy,
+    });
+};
+exports.upsertStudioIntegrationSettings = upsertStudioIntegrationSettings;
 const getUserByEmail = (email) => (0, exports.getDb)().prepare('SELECT * FROM users WHERE email=?').get(email.toLowerCase()) ?? null;
 exports.getUserByEmail = getUserByEmail;
 const getUserById = (id) => (0, exports.getDb)().prepare('SELECT * FROM users WHERE id=?').get(id) ?? null;

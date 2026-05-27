@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { decryptToken, encryptToken } from './crypto';
 
 let _db: Database.Database | null = null;
 
@@ -256,6 +257,20 @@ const migrate = (db: Database.Database): void => {
       plan          TEXT NOT NULL DEFAULT 'pro',
       set_by        TEXT,
       set_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS studio_integration_settings (
+      studio_id                  TEXT PRIMARY KEY,
+      linkedin_client_id         TEXT,
+      linkedin_client_secret_enc TEXT,
+      linkedin_redirect_uri      TEXT,
+      linkedin_scopes            TEXT,
+      meta_app_id                TEXT,
+      meta_app_secret_enc        TEXT,
+      meta_redirect_uri          TEXT,
+      meta_scopes                TEXT,
+      updated_by                 TEXT,
+      updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -739,6 +754,174 @@ export const setLocalStudioPlan = (studioId: string, plan: string, setBy?: strin
     VALUES (?, ?, ?, datetime('now'))
     ON CONFLICT(studio_id) DO UPDATE SET plan=excluded.plan, set_by=excluded.set_by, set_at=excluded.set_at`)
     .run(studioId, plan, setBy ?? null);
+};
+
+export interface StudioIntegrationSettings {
+  studio_id: string;
+  linkedin_client_id: string | null;
+  linkedin_client_secret: string | null;
+  linkedin_redirect_uri: string | null;
+  linkedin_scopes: string | null;
+  meta_app_id: string | null;
+  meta_app_secret: string | null;
+  meta_redirect_uri: string | null;
+  meta_scopes: string | null;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+interface StudioIntegrationSettingsRow {
+  studio_id: string;
+  linkedin_client_id: string | null;
+  linkedin_client_secret_enc: string | null;
+  linkedin_redirect_uri: string | null;
+  linkedin_scopes: string | null;
+  meta_app_id: string | null;
+  meta_app_secret_enc: string | null;
+  meta_redirect_uri: string | null;
+  meta_scopes: string | null;
+  updated_by: string | null;
+  updated_at: string;
+}
+
+export interface StudioIntegrationSettingsInput {
+  linkedin_client_id?: string;
+  linkedin_client_secret?: string;
+  linkedin_redirect_uri?: string;
+  linkedin_scopes?: string;
+  meta_app_id?: string;
+  meta_app_secret?: string;
+  meta_redirect_uri?: string;
+  meta_scopes?: string;
+}
+
+const normalizeOptional = (v: string | undefined): string | null | undefined => {
+  if (v === undefined) return undefined;
+  const t = v.trim();
+  return t ? t : null;
+};
+
+export const getStudioIntegrationSettings = (studioId: string): StudioIntegrationSettings | null => {
+  const row = getDb().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId) as StudioIntegrationSettingsRow | undefined;
+  if (!row) return null;
+
+  const decryptSafe = (value: string | null): string | null => {
+    if (!value) return null;
+    try {
+      return decryptToken(value);
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    studio_id: row.studio_id,
+    linkedin_client_id: row.linkedin_client_id,
+    linkedin_client_secret: decryptSafe(row.linkedin_client_secret_enc),
+    linkedin_redirect_uri: row.linkedin_redirect_uri,
+    linkedin_scopes: row.linkedin_scopes,
+    meta_app_id: row.meta_app_id,
+    meta_app_secret: decryptSafe(row.meta_app_secret_enc),
+    meta_redirect_uri: row.meta_redirect_uri,
+    meta_scopes: row.meta_scopes,
+    updated_by: row.updated_by,
+    updated_at: row.updated_at,
+  };
+};
+
+export const getStudioIntegrationSettingsSummary = (studioId: string): Omit<StudioIntegrationSettings, 'linkedin_client_secret' | 'meta_app_secret'> & { has_linkedin_client_secret: boolean; has_meta_app_secret: boolean } => {
+  const row = getDb().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId) as StudioIntegrationSettingsRow | undefined;
+  if (!row) {
+    return {
+      studio_id: studioId,
+      linkedin_client_id: null,
+      linkedin_redirect_uri: null,
+      linkedin_scopes: null,
+      meta_app_id: null,
+      meta_redirect_uri: null,
+      meta_scopes: null,
+      updated_by: null,
+      updated_at: new Date(0).toISOString(),
+      has_linkedin_client_secret: false,
+      has_meta_app_secret: false,
+    };
+  }
+
+  return {
+    studio_id: row.studio_id,
+    linkedin_client_id: row.linkedin_client_id,
+    linkedin_redirect_uri: row.linkedin_redirect_uri,
+    linkedin_scopes: row.linkedin_scopes,
+    meta_app_id: row.meta_app_id,
+    meta_redirect_uri: row.meta_redirect_uri,
+    meta_scopes: row.meta_scopes,
+    updated_by: row.updated_by,
+    updated_at: row.updated_at,
+    has_linkedin_client_secret: Boolean(row.linkedin_client_secret_enc),
+    has_meta_app_secret: Boolean(row.meta_app_secret_enc),
+  };
+};
+
+export const upsertStudioIntegrationSettings = (studioId: string, updatedBy: string, input: StudioIntegrationSettingsInput): void => {
+  const existing = getDb().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId) as StudioIntegrationSettingsRow | undefined;
+
+  const nextLinkedInSecretEnc = input.linkedin_client_secret === undefined
+    ? (existing?.linkedin_client_secret_enc ?? null)
+    : (normalizeOptional(input.linkedin_client_secret) ? encryptToken(normalizeOptional(input.linkedin_client_secret)!) : null);
+
+  const nextMetaSecretEnc = input.meta_app_secret === undefined
+    ? (existing?.meta_app_secret_enc ?? null)
+    : (normalizeOptional(input.meta_app_secret) ? encryptToken(normalizeOptional(input.meta_app_secret)!) : null);
+
+  getDb().prepare(`
+    INSERT INTO studio_integration_settings (
+      studio_id,
+      linkedin_client_id,
+      linkedin_client_secret_enc,
+      linkedin_redirect_uri,
+      linkedin_scopes,
+      meta_app_id,
+      meta_app_secret_enc,
+      meta_redirect_uri,
+      meta_scopes,
+      updated_by,
+      updated_at
+    ) VALUES (
+      @studio_id,
+      @linkedin_client_id,
+      @linkedin_client_secret_enc,
+      @linkedin_redirect_uri,
+      @linkedin_scopes,
+      @meta_app_id,
+      @meta_app_secret_enc,
+      @meta_redirect_uri,
+      @meta_scopes,
+      @updated_by,
+      datetime('now')
+    )
+    ON CONFLICT(studio_id) DO UPDATE SET
+      linkedin_client_id=excluded.linkedin_client_id,
+      linkedin_client_secret_enc=excluded.linkedin_client_secret_enc,
+      linkedin_redirect_uri=excluded.linkedin_redirect_uri,
+      linkedin_scopes=excluded.linkedin_scopes,
+      meta_app_id=excluded.meta_app_id,
+      meta_app_secret_enc=excluded.meta_app_secret_enc,
+      meta_redirect_uri=excluded.meta_redirect_uri,
+      meta_scopes=excluded.meta_scopes,
+      updated_by=excluded.updated_by,
+      updated_at=excluded.updated_at
+  `).run({
+    studio_id: studioId,
+    linkedin_client_id: normalizeOptional(input.linkedin_client_id) ?? existing?.linkedin_client_id ?? null,
+    linkedin_client_secret_enc: nextLinkedInSecretEnc,
+    linkedin_redirect_uri: normalizeOptional(input.linkedin_redirect_uri) ?? existing?.linkedin_redirect_uri ?? null,
+    linkedin_scopes: normalizeOptional(input.linkedin_scopes) ?? existing?.linkedin_scopes ?? null,
+    meta_app_id: normalizeOptional(input.meta_app_id) ?? existing?.meta_app_id ?? null,
+    meta_app_secret_enc: nextMetaSecretEnc,
+    meta_redirect_uri: normalizeOptional(input.meta_redirect_uri) ?? existing?.meta_redirect_uri ?? null,
+    meta_scopes: normalizeOptional(input.meta_scopes) ?? existing?.meta_scopes ?? null,
+    updated_by: updatedBy,
+  });
 };
 
 // ─── Users ───────────────────────────────────────────────────────────────────

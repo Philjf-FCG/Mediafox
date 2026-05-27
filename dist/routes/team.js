@@ -39,6 +39,39 @@ router.get('/', (req, res) => {
     const me = (0, db_1.getMember)(req.studioId, req.mediafoxUser.userId);
     res.json({ members, my_role: me?.role ?? 'viewer' });
 });
+router.get('/integration-settings', (req, res) => {
+    if (!requireOwnerOrManager(req, res))
+        return;
+    const saved = (0, db_1.getStudioIntegrationSettingsSummary)(req.studioId);
+    const effective = {
+        linkedin_client_id: saved.linkedin_client_id || process.env.LINKEDIN_CLIENT_ID || null,
+        linkedin_redirect_uri: saved.linkedin_redirect_uri || process.env.LINKEDIN_REDIRECT_URI || null,
+        linkedin_scopes: saved.linkedin_scopes || process.env.LINKEDIN_SCOPES || null,
+        meta_app_id: saved.meta_app_id || process.env.META_APP_ID || null,
+        meta_redirect_uri: saved.meta_redirect_uri || process.env.META_REDIRECT_URI || null,
+        meta_scopes: saved.meta_scopes || null,
+        has_linkedin_client_secret: saved.has_linkedin_client_secret || Boolean(process.env.LINKEDIN_CLIENT_SECRET),
+        has_meta_app_secret: saved.has_meta_app_secret || Boolean(process.env.META_APP_SECRET),
+    };
+    res.json({ saved, effective });
+});
+router.put('/integration-settings', (req, res) => {
+    if (!requireOwnerOrManager(req, res))
+        return;
+    const { linkedin_client_id, linkedin_client_secret, linkedin_redirect_uri, linkedin_scopes, meta_app_id, meta_app_secret, meta_redirect_uri, meta_scopes, } = req.body;
+    (0, db_1.upsertStudioIntegrationSettings)(req.studioId, req.mediafoxUser.userId, {
+        linkedin_client_id,
+        linkedin_client_secret,
+        linkedin_redirect_uri,
+        linkedin_scopes,
+        meta_app_id,
+        meta_app_secret,
+        meta_redirect_uri,
+        meta_scopes,
+    });
+    const saved = (0, db_1.getStudioIntegrationSettingsSummary)(req.studioId);
+    res.json({ ok: true, saved });
+});
 router.post('/invite', (req, res) => {
     if (!requireOwnerOrManager(req, res))
         return;

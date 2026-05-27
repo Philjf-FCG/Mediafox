@@ -7,6 +7,15 @@ exports.refreshExpiringTokens = void 0;
 const axios_1 = __importDefault(require("axios"));
 const db_1 = require("../utils/db");
 const crypto_1 = require("../utils/crypto");
+const getStudioOAuthConfig = (studioId) => {
+    const stored = (0, db_1.getStudioIntegrationSettings)(studioId);
+    return {
+        linkedinClientId: (stored?.linkedin_client_id || process.env.LINKEDIN_CLIENT_ID || '').trim(),
+        linkedinClientSecret: (stored?.linkedin_client_secret || process.env.LINKEDIN_CLIENT_SECRET || '').trim(),
+        metaAppId: (stored?.meta_app_id || process.env.META_APP_ID || '').trim(),
+        metaAppSecret: (stored?.meta_app_secret || process.env.META_APP_SECRET || '').trim(),
+    };
+};
 const refreshBluesky = async (account) => {
     if (!account.refresh_token) {
         (0, db_1.updateAccountStatus)(account.id, 'expired');
@@ -22,13 +31,18 @@ const refreshLinkedIn = async (account) => {
         (0, db_1.updateAccountStatus)(account.id, 'expired');
         return;
     }
+    const cfg = getStudioOAuthConfig(account.studio_id);
+    if (!cfg.linkedinClientId || !cfg.linkedinClientSecret) {
+        (0, db_1.updateAccountStatus)(account.id, 'error');
+        return;
+    }
     try {
         const refreshToken = (0, crypto_1.decryptToken)(account.refresh_token);
         const res = await axios_1.default.post('https://www.linkedin.com/oauth/v2/accessToken', new URLSearchParams({
             grant_type: 'refresh_token',
             refresh_token: refreshToken,
-            client_id: process.env.LINKEDIN_CLIENT_ID,
-            client_secret: process.env.LINKEDIN_CLIENT_SECRET,
+            client_id: cfg.linkedinClientId,
+            client_secret: cfg.linkedinClientSecret,
         }), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 });
         const expiresAt = new Date(Date.now() + res.data.expires_in * 1000).toISOString();
         (0, db_1.updateAccountTokens)(account.id, (0, crypto_1.encryptToken)(res.data.access_token), res.data.refresh_token ? (0, crypto_1.encryptToken)(res.data.refresh_token) : account.refresh_token, expiresAt);
@@ -52,14 +66,15 @@ const refreshExpiringTokens = async () => {
                 await refreshLinkedIn(account);
             // Meta tokens can be exchanged for new long-lived tokens before expiry
             else if (account.platform === 'facebook' || account.platform === 'instagram') {
-                if (!process.env.META_APP_ID || !process.env.META_APP_SECRET)
+                const cfg = getStudioOAuthConfig(account.studio_id);
+                if (!cfg.metaAppId || !cfg.metaAppSecret)
                     continue;
                 const accessToken = (0, crypto_1.decryptToken)(account.access_token);
                 const res = await axios_1.default.get('https://graph.facebook.com/v19.0/oauth/access_token', {
                     params: {
                         grant_type: 'fb_exchange_token',
-                        client_id: process.env.META_APP_ID,
-                        client_secret: process.env.META_APP_SECRET,
+                        client_id: cfg.metaAppId,
+                        client_secret: cfg.metaAppSecret,
                         fb_exchange_token: accessToken,
                     },
                     timeout: 10000,
