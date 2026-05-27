@@ -14,8 +14,27 @@ const ADMIN_EMAILS = new Set((process.env.AUTH_ADMIN_EMAILS || '')
     .split(',')
     .map(e => e.trim().toLowerCase())
     .filter(Boolean));
-const GOOGLE_CLIENT_ID = (process.env.GOOGLE_CLIENT_ID || '').trim();
-const googleClient = GOOGLE_CLIENT_ID ? new google_auth_library_1.OAuth2Client(GOOGLE_CLIENT_ID) : null;
+const parseList = (raw) => raw
+    .split(',')
+    .map(v => v.trim())
+    .filter(Boolean);
+const GOOGLE_CLIENT_IDS = Array.from(new Set([
+    ...parseList(process.env.GOOGLE_CLIENT_IDS || ''),
+    ...(process.env.GOOGLE_CLIENT_ID ? [process.env.GOOGLE_CLIENT_ID.trim()] : []),
+])).filter(Boolean);
+const googleClient = GOOGLE_CLIENT_IDS.length > 0 ? new google_auth_library_1.OAuth2Client(GOOGLE_CLIENT_IDS[0]) : null;
+const readJwtAudience = (token) => {
+    try {
+        const parts = token.split('.');
+        if (parts.length < 2)
+            return null;
+        const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        return payload.aud || null;
+    }
+    catch {
+        return null;
+    }
+};
 const ensureAdmins = () => {
     for (const email of ADMIN_EMAILS) {
         try {
@@ -71,7 +90,7 @@ router.post('/google', async (req, res) => {
         return;
     }
     if (!googleClient) {
-        res.status(500).json({ error: 'Google login is not configured.', detail: 'GOOGLE_CLIENT_ID is not set.' });
+        res.status(500).json({ error: 'Google login is not configured.', detail: 'Set GOOGLE_CLIENT_ID or GOOGLE_CLIENT_IDS.' });
         return;
     }
     const { credential } = req.body || {};
@@ -80,7 +99,7 @@ router.post('/google', async (req, res) => {
         return;
     }
     try {
-        const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_ID });
+        const ticket = await googleClient.verifyIdToken({ idToken: credential, audience: GOOGLE_CLIENT_IDS });
         const payload = ticket.getPayload();
         if (!payload?.email) {
             res.status(401).json({ error: 'Invalid Google credential.' });
@@ -119,7 +138,13 @@ router.post('/google', async (req, res) => {
         res.json({ user: mfUser });
     }
     catch (err) {
-        res.status(401).json({ error: 'Google sign-in failed.', detail: String(err?.message || '') });
+        const audience = readJwtAudience(credential);
+        const configured = GOOGLE_CLIENT_IDS.join(', ');
+        const message = String(err?.message || '');
+        const detail = audience
+            ? `${message} (token aud=${audience}; expected one of: ${configured})`
+            : message;
+        res.status(401).json({ error: 'Google sign-in failed.', detail });
     }
 });
 // POST /api/auth/logout

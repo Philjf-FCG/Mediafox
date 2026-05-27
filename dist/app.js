@@ -90,12 +90,33 @@ const createApp = () => {
             res.status(400).json({ error: 'x-studio-id required' });
             return;
         }
-        const { getStudioPlan, getLimits, checkAccountLimit, checkPostQuota } = await Promise.resolve().then(() => __importStar(require('./utils/planGating')));
+        const { getStudioPlan, getLimits, checkAccountLimit, checkPostQuota, PLAN_NAMES } = await Promise.resolve().then(() => __importStar(require('./utils/planGating')));
         const plan = await getStudioPlan(studioId);
         const limits = getLimits(plan);
         const accounts = await checkAccountLimit(studioId);
         const posts = await checkPostQuota(studioId);
-        res.json({ plan, limits, usage: { accounts: accounts.current, posts_this_month: posts.current } });
+        res.json({ plan, limits, available_plans: PLAN_NAMES, usage: { accounts: accounts.current, posts_this_month: posts.current } });
+    });
+    // Admin: set plan for a studio locally (bypasses BudgetFox)
+    app.put('/api/plan', auth_1.requireAuth, async (req, res) => {
+        const studioId = req.headers['x-studio-id'] || req.body?.studio_id;
+        const { plan } = req.body;
+        if (!studioId || !plan) {
+            res.status(400).json({ error: 'studio_id and plan are required' });
+            return;
+        }
+        if (req.mediafoxUser?.role !== 'admin') {
+            res.status(403).json({ error: 'Admin only' });
+            return;
+        }
+        const { PLAN_NAMES } = await Promise.resolve().then(() => __importStar(require('./utils/planGating')));
+        if (!PLAN_NAMES.includes(plan)) {
+            res.status(400).json({ error: `plan must be one of: ${PLAN_NAMES.join(', ')}` });
+            return;
+        }
+        const { setLocalStudioPlan } = await Promise.resolve().then(() => __importStar(require('./utils/db')));
+        setLocalStudioPlan(studioId, plan, req.mediafoxUser.userId);
+        res.json({ ok: true, studio_id: studioId, plan });
     });
     // Accounts router registered before the main authed router so OAuth callbacks
     // (which arrive from external providers without x-studio-id) bypass attachStudio.

@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
+exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
@@ -204,6 +204,13 @@ const migrate = (db) => {
 
     CREATE INDEX IF NOT EXISTS idx_inbox_studio    ON inbox_items(studio_id, status);
     CREATE INDEX IF NOT EXISTS idx_accounts_studio ON accounts(studio_id);
+    CREATE TABLE IF NOT EXISTS studio_plans (
+      studio_id     TEXT PRIMARY KEY,
+      plan          TEXT NOT NULL DEFAULT 'pro',
+      set_by        TEXT,
+      set_at        TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id            TEXT PRIMARY KEY,
       email         TEXT NOT NULL UNIQUE,
@@ -415,6 +422,16 @@ const markNotificationsRead = (recipientId) => {
     (0, exports.getDb)().prepare("UPDATE notifications SET read=1 WHERE recipient_id=?").run(recipientId);
 };
 exports.markNotificationsRead = markNotificationsRead;
+// ─── Studio plans ────────────────────────────────────────────────────────────
+const getLocalStudioPlan = (studioId) => ((0, exports.getDb)().prepare('SELECT plan FROM studio_plans WHERE studio_id=?').get(studioId)?.plan) ?? null;
+exports.getLocalStudioPlan = getLocalStudioPlan;
+const setLocalStudioPlan = (studioId, plan, setBy) => {
+    (0, exports.getDb)().prepare(`INSERT INTO studio_plans (studio_id, plan, set_by, set_at)
+    VALUES (?, ?, ?, datetime('now'))
+    ON CONFLICT(studio_id) DO UPDATE SET plan=excluded.plan, set_by=excluded.set_by, set_at=excluded.set_at`)
+        .run(studioId, plan, setBy ?? null);
+};
+exports.setLocalStudioPlan = setLocalStudioPlan;
 const getUserByEmail = (email) => (0, exports.getDb)().prepare('SELECT * FROM users WHERE email=?').get(email.toLowerCase()) ?? null;
 exports.getUserByEmail = getUserByEmail;
 const getUserById = (id) => (0, exports.getDb)().prepare('SELECT * FROM users WHERE id=?').get(id) ?? null;

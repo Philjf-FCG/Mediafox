@@ -143,6 +143,8 @@ export declare const getPendingApproval: (postId: string) => ApprovalRequest | n
 export declare const createNotification: (id: string, recipientId: string, studioId: string, type: string, title: string, body?: string, link?: string) => void;
 export declare const getNotifications: (recipientId: string, unreadOnly?: boolean) => unknown[];
 export declare const markNotificationsRead: (recipientId: string) => void;
+export declare const getLocalStudioPlan: (studioId: string) => string | null;
+export declare const setLocalStudioPlan: (studioId: string, plan: string, setBy?: string) => void;
 export interface UserRecord {
     id: string;
     email: string;
