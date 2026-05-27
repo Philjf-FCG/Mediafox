@@ -9,7 +9,7 @@ primary_region = 'lhr'
 [build]
   dockerfile = "Dockerfile"
   [build.args]
-    VITE_GOOGLE_CLIENT_ID = "407954380639-r8mepvvq7772d8eaf00s09vo7stdomo1.apps.googleusercontent.com"
+    VITE_GOOGLE_CLIENT_ID = "407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com"
 
 
 [env]
