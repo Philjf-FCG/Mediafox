@@ -119,9 +119,24 @@ export const publishImageToLinkedIn = async (
 };
 
 export const getLinkedInProfile = async (accessToken: string): Promise<{ id: string; localizedFirstName: string; localizedLastName: string }> => {
-  const res = await axios.get<{ id: string; localizedFirstName: string; localizedLastName: string }>(
-    `${BASE}/me`,
-    { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 15000 },
-  );
-  return res.data;
+  try {
+    const res = await axios.get<{ id: string; localizedFirstName: string; localizedLastName: string }>(
+      `${BASE}/me`,
+      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 15000 },
+    );
+    return res.data;
+  } catch {
+    // Some apps use OpenID scopes/userinfo instead of /me profile scopes.
+    const u = await axios.get<{ sub: string; given_name?: string; family_name?: string; name?: string }>(
+      'https://api.linkedin.com/v2/userinfo',
+      { headers: { Authorization: `Bearer ${accessToken}` }, timeout: 15000 },
+    );
+    const full = (u.data.name || '').trim();
+    const [first, ...rest] = full.split(' ').filter(Boolean);
+    return {
+      id: u.data.sub,
+      localizedFirstName: u.data.given_name || first || 'LinkedIn',
+      localizedLastName: u.data.family_name || rest.join(' '),
+    };
+  }
 };

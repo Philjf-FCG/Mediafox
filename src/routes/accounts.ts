@@ -12,6 +12,14 @@ import { createBlueskySession } from '../adapters/bluesky';
 
 const router = Router();
 
+const getLinkedInScopes = (): string[] => {
+  const configured = (process.env.LINKEDIN_SCOPES || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (configured.length > 0) return configured;
+
+  // Avoid deprecated r_basicprofile; use modern lite profile defaults.
+  return ['r_liteprofile', 'w_member_social'];
+};
+
 type OAuthPlatform = 'slack' | 'meta' | 'linkedin';
 
 interface OAuthStatePayload {
@@ -375,7 +383,7 @@ router.get('/connect/linkedin', (req: Request, res: Response) => {
     userId: req.mediafoxUser!.userId,
     platform: 'linkedin',
   });
-  const scopes = 'r_basicprofile,w_member_social,r_organization_social,w_organization_social';
+  const scopes = getLinkedInScopes().join(' ');
   const redirect = process.env.LINKEDIN_REDIRECT_URI;
   res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${redirect}&scope=${encodeURIComponent(scopes)}&state=${state}` });
 });
@@ -420,13 +428,18 @@ router.get('/connect/linkedin/callback', async (req: Request, res: Response) => 
       access_token: encryptToken(access_token),
       refresh_token: null,
       token_expires_at: expiresAt,
-      scope: 'r_basicprofile,w_member_social',
+      scope: getLinkedInScopes().join(','),
       extra: JSON.stringify({}),
     });
 
     res.redirect(`/?connected=linkedin&name=${encodeURIComponent(name)}`);
-  } catch (err) {
-    console.error('LinkedIn OAuth error:', err);
+  } catch (err: unknown) {
+    const responseData = (err as { response?: { data?: unknown } })?.response?.data;
+    console.error('LinkedIn OAuth error:', responseData || err);
+    if (responseData) {
+      res.status(500).json({ error: 'LinkedIn connection failed', detail: responseData });
+      return;
+    }
     res.status(500).send('LinkedIn connection failed');
   }
 });
