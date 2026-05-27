@@ -14,6 +14,7 @@ primary_region = 'lhr'
 
 [env]
   AUTH_ADMIN_EMAILS = 'philjfoxton@googlemail.com'
+  CORS_ALLOWED_ORIGINS = 'https://mediafox.fly.dev'
   DATABASE_PATH = '/opt/data/mediafox.db'
   GOOGLE_CLIENT_ID = '407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com'
   MEDIA_STORAGE_PATH = '/opt/data/media'

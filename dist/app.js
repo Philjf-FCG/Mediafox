@@ -61,16 +61,19 @@ const loadAllowedOrigins = () => {
         .map(o => o.trim())
         .filter(Boolean)
         .map(normalizeOrigin);
+    const flyAppName = process.env.FLY_APP_NAME?.trim();
+    const flyOrigin = flyAppName ? `https://${flyAppName}.fly.dev` : '';
+    const defaults = flyOrigin ? [normalizeOrigin(flyOrigin)] : [];
     const configPath = path_1.default.join(process.cwd(), 'fox-suite.config.json');
     if (!fs_1.default.existsSync(configPath))
-        return Array.from(new Set(envOrigins));
+        return Array.from(new Set([...envOrigins, ...defaults]));
     try {
         const config = JSON.parse(fs_1.default.readFileSync(configPath, 'utf8'));
         const configOrigins = Object.values(config).filter(Boolean).map(normalizeOrigin);
-        return Array.from(new Set([...envOrigins, ...configOrigins]));
+        return Array.from(new Set([...envOrigins, ...configOrigins, ...defaults]));
     }
     catch {
-        return Array.from(new Set(envOrigins));
+        return Array.from(new Set([...envOrigins, ...defaults]));
     }
 };
 const createApp = () => {
