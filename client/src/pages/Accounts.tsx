@@ -22,6 +22,20 @@ export default function Accounts() {
   const [webhookName, setWebhookName] = useState('');
   const [msg, setMsg] = useState('');
 
+  const getApiErrorMessage = (err: unknown, fallback: string): string =>
+    (err as { response?: { data?: { error?: string; detail?: string } } })?.response?.data?.error
+    ?? (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+    ?? fallback;
+
+  const startOauthConnect = async (path: string, fallback: string) => {
+    try {
+      const r = await api.get<{ url: string }>(path);
+      window.location.href = r.data.url;
+    } catch (e: unknown) {
+      setMsg(getApiErrorMessage(e, fallback));
+    }
+  };
+
   const load = () => api.get<{ accounts: Account[] }>('/accounts').then(r => setAccounts(r.data.accounts)).catch(() => {});
   useEffect(() => { void load(); }, []);
 
@@ -93,9 +107,9 @@ export default function Accounts() {
         <h2 style={{ fontSize: 16, fontWeight: 700, width: '100%', marginBottom: 4 }}>Connect</h2>
         <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#0085ff', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => setShowBluesky(v => !v)}>+ Bluesky</button>
         <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#5865f2', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => setShowDiscord(v => !v)}>+ Discord Webhook</button>
-        <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#4a154b', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => { api.get<{url:string}>('/accounts/connect/slack').then(r => window.location.href = r.data.url).catch(() => setMsg('Slack not configured')); }}>+ Slack</button>
-        <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#0a66c2', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => { api.get<{url:string}>('/accounts/connect/linkedin').then(r => window.location.href = r.data.url).catch(() => setMsg('LinkedIn not configured')); }}>+ LinkedIn</button>
-        <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#1877f2', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => { api.get<{url:string}>('/accounts/connect/meta').then(r => window.location.href = r.data.url).catch(() => setMsg('Meta not configured')); }}>+ Facebook / Instagram</button>
+        <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#4a154b', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => { void startOauthConnect('/accounts/connect/slack', 'Slack integration not configured'); }}>+ Slack</button>
+        <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#0a66c2', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => { void startOauthConnect('/accounts/connect/linkedin', 'LinkedIn integration not configured'); }}>+ LinkedIn</button>
+        <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#1877f2', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => { void startOauthConnect('/accounts/connect/meta', 'Meta integration not configured'); }}>+ Facebook / Instagram</button>
       </div>
 
       {showBluesky && (
