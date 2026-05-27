@@ -11,6 +11,7 @@ Execute all remaining external portal submissions in one operator session with a
 - Meta review packet: DOCS/09-Meta-App-Review-Assets.md
 - LinkedIn application packet: DOCS/10-LinkedIn-Community-API-Application.md
 - Discord verification packet: DOCS/11-Discord-Bot-Verification-Plan.md
+- Fill-in worksheet: DOCS/13-Approval-Submission-Worksheet.md
 
 ## Session Plan
 1. Complete Meta app and sandbox setup.
@@ -62,6 +63,8 @@ MediaFox uses Discord integration to post approved updates for studio communitie
 | | Meta | App review submit | Pending | | |
 | | LinkedIn | Community API application submit | Pending | | |
 | | Discord | Verification submit or deferred note | Pending | | |
+
+Tip: Fill DOCS/13 first, then copy final note blocks into beads updates.
 
 ## Beads Update Instructions
 After each portal action, run:

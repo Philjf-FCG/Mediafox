@@ -10,6 +10,7 @@ Track submission readiness and status for:
 - Discord bot verification (100+ servers)
 
 Operator runbook: DOCS/12-Operator-API-Approval-Runbook.md
+Operator worksheet: DOCS/13-Approval-Submission-Worksheet.md
 
 ## Status Board
 
@@ -32,6 +33,7 @@ Operator runbook: DOCS/12-Operator-API-Approval-Runbook.md
 ## Submission Log
 - 2026-05-27: Prepared approval packets and templates for Meta, LinkedIn, Discord.
 - 2026-05-27: Added consolidated operator runbook with copy-ready portal text and completion log table.
+- 2026-05-27: Added fill-in submission worksheet with copy-ready beads note/command templates.
 
 ## Next Action Queue
 1. Complete Meta app sandbox configuration in portal (DOCS/08).
