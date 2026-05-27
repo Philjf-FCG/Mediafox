@@ -3,7 +3,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
-import { requireAuth } from './utils/auth';
+import { requireAuth, requireCsrfProtection } from './utils/auth';
 import { attachStudio, attachStudioOptional } from './middleware/studio';
 import authRoutes from './routes/auth';
 import accountRoutes from './routes/accounts';
@@ -40,6 +40,7 @@ export const createApp = (): express.Application => {
 
   app.use(express.json({ limit: '10mb' }));
   app.use(cookieParser());
+  app.use('/api', requireCsrfProtection);
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'mediafox' }));
 

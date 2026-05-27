@@ -82,6 +82,7 @@ const createApp = () => {
     }));
     app.use(express_1.default.json({ limit: '10mb' }));
     app.use((0, cookie_parser_1.default)());
+    app.use('/api', auth_1.requireCsrfProtection);
     app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'mediafox' }));
     app.use('/api/auth', auth_2.default);
     app.get('/api/plan', auth_1.requireAuth, async (req, res) => {

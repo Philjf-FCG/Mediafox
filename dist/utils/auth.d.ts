@@ -21,6 +21,7 @@ export declare const setAuthCookie: (req: Request, res: Response, token: string)
 export declare const clearAuthCookie: (req: Request, res: Response) => void;
 export declare const issueCsrfToken: (req: Request, res: Response) => string;
 export declare const hasValidCsrfToken: (req: Request) => boolean;
+export declare const requireCsrfProtection: (req: Request, res: Response, next: NextFunction) => void;
 export declare const parseOwnAuthToken: (req: Request) => MediaFoxUser | null;
 export declare const parseFoxAuthToken: (req: Request) => FoxAuthClaims | null;
 export declare const requireAuth: (req: Request, res: Response, next: NextFunction) => void;

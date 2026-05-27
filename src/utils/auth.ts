@@ -103,6 +103,22 @@ export const hasValidCsrfToken = (req: Request): boolean => {
   return crypto.timingSafeEqual(a, b);
 };
 
+const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+export const requireCsrfProtection = (req: Request, res: Response, next: NextFunction): void => {
+  if (CSRF_SAFE_METHODS.has(req.method.toUpperCase())) {
+    next();
+    return;
+  }
+
+  if (!hasValidCsrfToken(req)) {
+    res.status(403).json({ error: 'Invalid CSRF token' });
+    return;
+  }
+
+  next();
+};
+
 // ─── Token parsing ────────────────────────────────────────────────────────────
 
 export const parseOwnAuthToken = (req: Request): MediaFoxUser | null => {

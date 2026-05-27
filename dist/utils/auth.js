@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.requireAuth = exports.parseFoxAuthToken = exports.parseOwnAuthToken = exports.hasValidCsrfToken = exports.issueCsrfToken = exports.clearAuthCookie = exports.setAuthCookie = exports.issueAuthToken = exports.isAuthEnabled = exports.CSRF_HEADER = exports.CSRF_COOKIE = exports.AUTH_COOKIE = void 0;
+exports.requireAuth = exports.parseFoxAuthToken = exports.parseOwnAuthToken = exports.requireCsrfProtection = exports.hasValidCsrfToken = exports.issueCsrfToken = exports.clearAuthCookie = exports.setAuthCookie = exports.issueAuthToken = exports.isAuthEnabled = exports.CSRF_HEADER = exports.CSRF_COOKIE = exports.AUTH_COOKIE = void 0;
 const crypto_1 = __importDefault(require("crypto"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const dotenv_1 = __importDefault(require("dotenv"));
@@ -85,6 +85,19 @@ const hasValidCsrfToken = (req) => {
     return crypto_1.default.timingSafeEqual(a, b);
 };
 exports.hasValidCsrfToken = hasValidCsrfToken;
+const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+const requireCsrfProtection = (req, res, next) => {
+    if (CSRF_SAFE_METHODS.has(req.method.toUpperCase())) {
+        next();
+        return;
+    }
+    if (!(0, exports.hasValidCsrfToken)(req)) {
+        res.status(403).json({ error: 'Invalid CSRF token' });
+        return;
+    }
+    next();
+};
+exports.requireCsrfProtection = requireCsrfProtection;
 // ─── Token parsing ────────────────────────────────────────────────────────────
 const parseOwnAuthToken = (req) => {
     const token = req.cookies?.[exports.AUTH_COOKIE];
