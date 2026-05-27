@@ -3,6 +3,29 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const db_1 = require("../utils/db");
 const router = (0, express_1.Router)();
+router.post('/bootstrap', (req, res) => {
+    const studioId = req.studioId;
+    const user = req.mediafoxUser;
+    const me = (0, db_1.getMember)(studioId, user.userId);
+    if (me) {
+        res.json({ ok: true, bootstrapped: false, role: me.role });
+        return;
+    }
+    const members = (0, db_1.getMembersByStudio)(studioId);
+    if (members.length > 0) {
+        res.status(403).json({ error: 'Studio already has members. Ask an owner or manager to invite you.' });
+        return;
+    }
+    (0, db_1.upsertMember)({
+        studio_id: studioId,
+        user_id: user.userId,
+        email: user.email,
+        name: user.name,
+        role: 'owner',
+        joined_at: new Date().toISOString(),
+    });
+    res.status(201).json({ ok: true, bootstrapped: true, role: 'owner' });
+});
 const requireOwnerOrManager = (req, res) => {
     const m = (0, db_1.getMember)(req.studioId, req.mediafoxUser.userId);
     if (!m || !['owner', 'manager'].includes(m.role)) {

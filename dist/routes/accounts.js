@@ -38,13 +38,58 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const axios_1 = __importDefault(require("axios"));
+const crypto_1 = __importDefault(require("crypto"));
 const uuid_1 = require("uuid");
 const db_1 = require("../utils/db");
-const crypto_1 = require("../utils/crypto");
+const crypto_2 = require("../utils/crypto");
 const rateLimit_1 = require("../utils/rateLimit");
 const planGating_1 = require("../utils/planGating");
 const bluesky_1 = require("../adapters/bluesky");
 const router = (0, express_1.Router)();
+const OAUTH_STATE_TTL_SECONDS = 10 * 60;
+const getOauthStateSecret = () => (process.env.OAUTH_STATE_SECRET || process.env.MEDIAFOX_JWT_SECRET || '').trim();
+const signOauthState = (payload) => {
+    const secret = getOauthStateSecret();
+    if (!secret)
+        throw new Error('OAUTH_STATE_SECRET or MEDIAFOX_JWT_SECRET must be set');
+    const now = Math.floor(Date.now() / 1000);
+    const body = {
+        ...payload,
+        nonce: crypto_1.default.randomBytes(16).toString('hex'),
+        iat: now,
+        exp: now + OAUTH_STATE_TTL_SECONDS,
+    };
+    const encoded = Buffer.from(JSON.stringify(body), 'utf8').toString('base64url');
+    const sig = crypto_1.default.createHmac('sha256', secret).update(encoded).digest('base64url');
+    return `${encoded}.${sig}`;
+};
+const parseOauthState = (state, platform) => {
+    const secret = getOauthStateSecret();
+    if (!secret)
+        return null;
+    const [encoded, signature] = state.split('.');
+    if (!encoded || !signature)
+        return null;
+    const expected = crypto_1.default.createHmac('sha256', secret).update(encoded).digest('base64url');
+    const a = Buffer.from(signature, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length || !crypto_1.default.timingSafeEqual(a, b))
+        return null;
+    try {
+        const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8'));
+        const now = Math.floor(Date.now() / 1000);
+        if (!payload?.studioId || !payload?.type || !payload?.userId || !payload?.platform)
+            return null;
+        if (payload.platform !== platform)
+            return null;
+        if (!payload.exp || payload.exp < now)
+            return null;
+        return { studioId: payload.studioId, type: payload.type, userId: payload.userId };
+    }
+    catch {
+        return null;
+    }
+};
 // ─── List accounts ────────────────────────────────────────────────────────────
 router.get('/', (req, res) => {
     const accounts = (0, db_1.getAccountsByStudio)(req.studioId).map(a => ({
@@ -99,8 +144,8 @@ router.post('/connect/bluesky', async (req, res) => {
             platform_id: session.did,
             display_name: `@${session.handle}`,
             avatar_url: null,
-            access_token: (0, crypto_1.encryptToken)(session.accessJwt),
-            refresh_token: (0, crypto_1.encryptToken)(session.refreshJwt),
+            access_token: (0, crypto_2.encryptToken)(session.accessJwt),
+            refresh_token: (0, crypto_2.encryptToken)(session.refreshJwt),
             token_expires_at: null,
             scope: null,
             extra: JSON.stringify({ did: session.did }),
@@ -146,11 +191,11 @@ router.post('/connect/discord/webhook', async (req, res) => {
         platform_id: platformId,
         display_name: display_name || 'Discord Webhook',
         avatar_url: null,
-        access_token: (0, crypto_1.encryptToken)('webhook-only'),
+        access_token: (0, crypto_2.encryptToken)('webhook-only'),
         refresh_token: null,
         token_expires_at: null,
         scope: 'webhook',
-        extra: JSON.stringify({ webhook_url: (0, crypto_1.encryptToken)(webhook_url) }),
+        extra: JSON.stringify({ webhook_url: (0, crypto_2.encryptToken)(webhook_url) }),
     });
     res.json({ account: { id: account.id, platform: 'discord', display_name: account.display_name } });
 });
@@ -161,7 +206,16 @@ router.get('/connect/slack', (req, res) => {
         res.status(503).json({ error: 'Slack integration not configured' });
         return;
     }
-    const state = Buffer.from(JSON.stringify({ studioId: req.studioId, type: req.query.account_type ?? 'company' })).toString('base64');
+    if (!getOauthStateSecret()) {
+        res.status(503).json({ error: 'OAuth state signing is not configured' });
+        return;
+    }
+    const state = signOauthState({
+        studioId: req.studioId,
+        type: String(req.query.account_type ?? 'company'),
+        userId: req.mediafoxUser.userId,
+        platform: 'slack',
+    });
     const scopes = 'chat:write,channels:read,channels:history,reactions:read';
     const redirect = process.env.SLACK_REDIRECT_URI;
     res.json({ url: `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${redirect}&state=${state}` });
@@ -172,7 +226,20 @@ router.get('/connect/slack/callback', async (req, res) => {
         res.status(400).send('Invalid callback');
         return;
     }
-    const { studioId, type } = JSON.parse(Buffer.from(state, 'base64').toString());
+    const parsed = parseOauthState(state, 'slack');
+    if (!parsed) {
+        res.status(400).send('Invalid callback state');
+        return;
+    }
+    if (parsed.userId !== req.mediafoxUser.userId) {
+        res.status(403).send('Callback is not for this user');
+        return;
+    }
+    if (!(0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
+        res.status(403).send('No studio access');
+        return;
+    }
+    const { studioId, type } = parsed;
     try {
         const tokenRes = await axios_1.default.post('https://slack.com/api/oauth.v2.access', new URLSearchParams({
             code,
@@ -195,7 +262,7 @@ router.get('/connect/slack/callback', async (req, res) => {
             platform_id: team.id,
             display_name: team.name,
             avatar_url: null,
-            access_token: (0, crypto_1.encryptToken)(access_token),
+            access_token: (0, crypto_2.encryptToken)(access_token),
             refresh_token: null,
             token_expires_at: null,
             scope: 'chat:write,channels:read,channels:history',
@@ -215,7 +282,16 @@ router.get('/connect/meta', (req, res) => {
         res.status(503).json({ error: 'Meta integration not configured. META_APP_ID is not set.' });
         return;
     }
-    const state = Buffer.from(JSON.stringify({ studioId: req.studioId, type: req.query.account_type ?? 'company' })).toString('base64');
+    if (!getOauthStateSecret()) {
+        res.status(503).json({ error: 'OAuth state signing is not configured' });
+        return;
+    }
+    const state = signOauthState({
+        studioId: req.studioId,
+        type: String(req.query.account_type ?? 'company'),
+        userId: req.mediafoxUser.userId,
+        platform: 'meta',
+    });
     const scopes = 'pages_manage_posts,pages_read_engagement,pages_show_list,instagram_basic,instagram_content_publish,instagram_manage_insights';
     const redirect = process.env.META_REDIRECT_URI;
     res.json({ url: `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&scope=${scopes}&state=${state}&response_type=code` });
@@ -226,7 +302,20 @@ router.get('/connect/meta/callback', async (req, res) => {
         res.status(400).send('Invalid callback');
         return;
     }
-    const { studioId, type } = JSON.parse(Buffer.from(state, 'base64').toString());
+    const parsed = parseOauthState(state, 'meta');
+    if (!parsed) {
+        res.status(400).send('Invalid callback state');
+        return;
+    }
+    if (parsed.userId !== req.mediafoxUser.userId) {
+        res.status(403).send('Callback is not for this user');
+        return;
+    }
+    if (!(0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
+        res.status(403).send('No studio access');
+        return;
+    }
+    const { studioId, type } = parsed;
     try {
         // Exchange code for short-lived token
         const tokenRes = await axios_1.default.get('https://graph.facebook.com/v19.0/oauth/access_token', {
@@ -264,7 +353,7 @@ router.get('/connect/meta/callback', async (req, res) => {
                 platform_id: page.id,
                 display_name: page.name,
                 avatar_url: null,
-                access_token: (0, crypto_1.encryptToken)(page.access_token),
+                access_token: (0, crypto_2.encryptToken)(page.access_token),
                 refresh_token: null,
                 token_expires_at: expiresAt,
                 scope: 'pages_manage_posts,pages_read_engagement',
@@ -284,11 +373,11 @@ router.get('/connect/meta/callback', async (req, res) => {
                         platform_id: ig.id,
                         display_name: `@${ig.username}`,
                         avatar_url: null,
-                        access_token: (0, crypto_1.encryptToken)(page.access_token),
+                        access_token: (0, crypto_2.encryptToken)(page.access_token),
                         refresh_token: null,
                         token_expires_at: expiresAt,
                         scope: 'instagram_basic,instagram_content_publish',
-                        extra: JSON.stringify({ page_id: page.id, page_access_token: (0, crypto_1.encryptToken)(page.access_token) }),
+                        extra: JSON.stringify({ page_id: page.id, page_access_token: (0, crypto_2.encryptToken)(page.access_token) }),
                     });
                 }
             }
@@ -310,7 +399,16 @@ router.get('/connect/linkedin', (req, res) => {
         res.status(503).json({ error: 'LinkedIn integration not configured. LINKEDIN_CLIENT_ID is not set.' });
         return;
     }
-    const state = Buffer.from(JSON.stringify({ studioId: req.studioId, type: req.query.account_type ?? 'company' })).toString('base64');
+    if (!getOauthStateSecret()) {
+        res.status(503).json({ error: 'OAuth state signing is not configured' });
+        return;
+    }
+    const state = signOauthState({
+        studioId: req.studioId,
+        type: String(req.query.account_type ?? 'company'),
+        userId: req.mediafoxUser.userId,
+        platform: 'linkedin',
+    });
     const scopes = 'r_basicprofile,w_member_social,r_organization_social,w_organization_social';
     const redirect = process.env.LINKEDIN_REDIRECT_URI;
     res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${redirect}&scope=${encodeURIComponent(scopes)}&state=${state}` });
@@ -321,7 +419,20 @@ router.get('/connect/linkedin/callback', async (req, res) => {
         res.status(400).send('Invalid callback');
         return;
     }
-    const { studioId, type } = JSON.parse(Buffer.from(state, 'base64').toString());
+    const parsed = parseOauthState(state, 'linkedin');
+    if (!parsed) {
+        res.status(400).send('Invalid callback state');
+        return;
+    }
+    if (parsed.userId !== req.mediafoxUser.userId) {
+        res.status(403).send('Callback is not for this user');
+        return;
+    }
+    if (!(0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
+        res.status(403).send('No studio access');
+        return;
+    }
+    const { studioId, type } = parsed;
     try {
         const tokenRes = await axios_1.default.post('https://www.linkedin.com/oauth/v2/accessToken', new URLSearchParams({
             grant_type: 'authorization_code',
@@ -344,7 +455,7 @@ router.get('/connect/linkedin/callback', async (req, res) => {
             platform_id: profile.id,
             display_name: name,
             avatar_url: null,
-            access_token: (0, crypto_1.encryptToken)(access_token),
+            access_token: (0, crypto_2.encryptToken)(access_token),
             refresh_token: null,
             token_expires_at: expiresAt,
             scope: 'r_basicprofile,w_member_social',
@@ -372,7 +483,7 @@ router.post('/:id/refresh', async (req, res) => {
                 headers: { Authorization: `Bearer ${refreshJwt}` }, timeout: 10000,
             });
             const d = r.data;
-            (0, db_1.updateAccountTokens)(account.id, (0, crypto_1.encryptToken)(d.accessJwt), (0, crypto_1.encryptToken)(d.refreshJwt), null);
+            (0, db_1.updateAccountTokens)(account.id, (0, crypto_2.encryptToken)(d.accessJwt), (0, crypto_2.encryptToken)(d.refreshJwt), null);
             res.json({ ok: true });
         }
         catch {

@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express';
 import axios from 'axios';
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import {
-  getAccountsByStudio, getAccountById, upsertAccount, deleteAccount, updateAccountTokens,
+  getAccountsByStudio, getAccountById, upsertAccount, deleteAccount, updateAccountTokens, getMember,
 } from '../utils/db';
 import { encryptToken } from '../utils/crypto';
 import { checkRateLimit } from '../utils/rateLimit';
@@ -10,6 +11,63 @@ import { checkAccountLimit } from '../utils/planGating';
 import { createBlueskySession } from '../adapters/bluesky';
 
 const router = Router();
+
+type OAuthPlatform = 'slack' | 'meta' | 'linkedin';
+
+interface OAuthStatePayload {
+  studioId: string;
+  type: string;
+  userId: string;
+  platform: OAuthPlatform;
+  nonce: string;
+  iat: number;
+  exp: number;
+}
+
+const OAUTH_STATE_TTL_SECONDS = 10 * 60;
+
+const getOauthStateSecret = (): string =>
+  (process.env.OAUTH_STATE_SECRET || process.env.MEDIAFOX_JWT_SECRET || '').trim();
+
+const signOauthState = (payload: Omit<OAuthStatePayload, 'nonce' | 'iat' | 'exp'>): string => {
+  const secret = getOauthStateSecret();
+  if (!secret) throw new Error('OAUTH_STATE_SECRET or MEDIAFOX_JWT_SECRET must be set');
+
+  const now = Math.floor(Date.now() / 1000);
+  const body: OAuthStatePayload = {
+    ...payload,
+    nonce: crypto.randomBytes(16).toString('hex'),
+    iat: now,
+    exp: now + OAUTH_STATE_TTL_SECONDS,
+  };
+  const encoded = Buffer.from(JSON.stringify(body), 'utf8').toString('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
+  return `${encoded}.${sig}`;
+};
+
+const parseOauthState = (state: string, platform: OAuthPlatform): { studioId: string; type: string; userId: string } | null => {
+  const secret = getOauthStateSecret();
+  if (!secret) return null;
+
+  const [encoded, signature] = state.split('.');
+  if (!encoded || !signature) return null;
+
+  const expected = crypto.createHmac('sha256', secret).update(encoded).digest('base64url');
+  const a = Buffer.from(signature, 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as OAuthStatePayload;
+    const now = Math.floor(Date.now() / 1000);
+    if (!payload?.studioId || !payload?.type || !payload?.userId || !payload?.platform) return null;
+    if (payload.platform !== platform) return null;
+    if (!payload.exp || payload.exp < now) return null;
+    return { studioId: payload.studioId, type: payload.type, userId: payload.userId };
+  } catch {
+    return null;
+  }
+};
 
 // ─── List accounts ────────────────────────────────────────────────────────────
 
@@ -131,7 +189,13 @@ router.post('/connect/discord/webhook', async (req: Request, res: Response) => {
 router.get('/connect/slack', (req: Request, res: Response) => {
   const clientId = process.env.SLACK_CLIENT_ID;
   if (!clientId) { res.status(503).json({ error: 'Slack integration not configured' }); return; }
-  const state = Buffer.from(JSON.stringify({ studioId: req.studioId, type: req.query.account_type ?? 'company' })).toString('base64');
+  if (!getOauthStateSecret()) { res.status(503).json({ error: 'OAuth state signing is not configured' }); return; }
+  const state = signOauthState({
+    studioId: req.studioId!,
+    type: String(req.query.account_type ?? 'company'),
+    userId: req.mediafoxUser!.userId,
+    platform: 'slack',
+  });
   const scopes = 'chat:write,channels:read,channels:history,reactions:read';
   const redirect = process.env.SLACK_REDIRECT_URI;
   res.json({ url: `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${redirect}&state=${state}` });
@@ -140,8 +204,11 @@ router.get('/connect/slack', (req: Request, res: Response) => {
 router.get('/connect/slack/callback', async (req: Request, res: Response) => {
   const { code, state } = req.query as { code?: string; state?: string };
   if (!code || !state) { res.status(400).send('Invalid callback'); return; }
-
-  const { studioId, type } = JSON.parse(Buffer.from(state, 'base64').toString()) as { studioId: string; type: string };
+  const parsed = parseOauthState(state, 'slack');
+  if (!parsed) { res.status(400).send('Invalid callback state'); return; }
+  if (parsed.userId !== req.mediafoxUser!.userId) { res.status(403).send('Callback is not for this user'); return; }
+  if (!getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
+  const { studioId, type } = parsed;
 
   try {
     const tokenRes = await axios.post<{
@@ -195,7 +262,13 @@ router.get('/connect/slack/callback', async (req: Request, res: Response) => {
 router.get('/connect/meta', (req: Request, res: Response) => {
   const appId = process.env.META_APP_ID;
   if (!appId) { res.status(503).json({ error: 'Meta integration not configured. META_APP_ID is not set.' }); return; }
-  const state = Buffer.from(JSON.stringify({ studioId: req.studioId, type: req.query.account_type ?? 'company' })).toString('base64');
+  if (!getOauthStateSecret()) { res.status(503).json({ error: 'OAuth state signing is not configured' }); return; }
+  const state = signOauthState({
+    studioId: req.studioId!,
+    type: String(req.query.account_type ?? 'company'),
+    userId: req.mediafoxUser!.userId,
+    platform: 'meta',
+  });
   const scopes = 'pages_manage_posts,pages_read_engagement,pages_show_list,instagram_basic,instagram_content_publish,instagram_manage_insights';
   const redirect = process.env.META_REDIRECT_URI;
   res.json({ url: `https://www.facebook.com/v19.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&scope=${scopes}&state=${state}&response_type=code` });
@@ -204,8 +277,11 @@ router.get('/connect/meta', (req: Request, res: Response) => {
 router.get('/connect/meta/callback', async (req: Request, res: Response) => {
   const { code, state } = req.query as { code?: string; state?: string };
   if (!code || !state) { res.status(400).send('Invalid callback'); return; }
-
-  const { studioId, type } = JSON.parse(Buffer.from(state, 'base64').toString()) as { studioId: string; type: string };
+  const parsed = parseOauthState(state, 'meta');
+  if (!parsed) { res.status(400).send('Invalid callback state'); return; }
+  if (parsed.userId !== req.mediafoxUser!.userId) { res.status(403).send('Callback is not for this user'); return; }
+  if (!getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
+  const { studioId, type } = parsed;
 
   try {
     // Exchange code for short-lived token
@@ -292,7 +368,13 @@ router.get('/connect/meta/callback', async (req: Request, res: Response) => {
 router.get('/connect/linkedin', (req: Request, res: Response) => {
   const clientId = process.env.LINKEDIN_CLIENT_ID;
   if (!clientId) { res.status(503).json({ error: 'LinkedIn integration not configured. LINKEDIN_CLIENT_ID is not set.' }); return; }
-  const state = Buffer.from(JSON.stringify({ studioId: req.studioId, type: req.query.account_type ?? 'company' })).toString('base64');
+  if (!getOauthStateSecret()) { res.status(503).json({ error: 'OAuth state signing is not configured' }); return; }
+  const state = signOauthState({
+    studioId: req.studioId!,
+    type: String(req.query.account_type ?? 'company'),
+    userId: req.mediafoxUser!.userId,
+    platform: 'linkedin',
+  });
   const scopes = 'r_basicprofile,w_member_social,r_organization_social,w_organization_social';
   const redirect = process.env.LINKEDIN_REDIRECT_URI;
   res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${redirect}&scope=${encodeURIComponent(scopes)}&state=${state}` });
@@ -301,8 +383,11 @@ router.get('/connect/linkedin', (req: Request, res: Response) => {
 router.get('/connect/linkedin/callback', async (req: Request, res: Response) => {
   const { code, state } = req.query as { code?: string; state?: string };
   if (!code || !state) { res.status(400).send('Invalid callback'); return; }
-
-  const { studioId, type } = JSON.parse(Buffer.from(state, 'base64').toString()) as { studioId: string; type: string };
+  const parsed = parseOauthState(state, 'linkedin');
+  if (!parsed) { res.status(400).send('Invalid callback state'); return; }
+  if (parsed.userId !== req.mediafoxUser!.userId) { res.status(403).send('Callback is not for this user'); return; }
+  if (!getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
+  const { studioId, type } = parsed;
 
   try {
     const tokenRes = await axios.post<{ access_token: string; expires_in: number }>(
