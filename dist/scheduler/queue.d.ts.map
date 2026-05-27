@@ -1,0 +1,1 @@
+{"version":3,"file":"queue.d.ts","sourceRoot":"","sources":["../../src/scheduler/queue.ts"],"names":[],"mappings":"AAyBA,eAAO,MAAM,YAAY,GAAI,QAAQ,MAAM,EAAE,WAAW,MAAM,EAAE,QAAQ,IAAI,KAAG,IAE9E,CAAC;AAEF,eAAO,MAAM,eAAe,GAAI,QAAQ,MAAM,EAAE,WAAW,MAAM,KAAG,IAEnE,CAAC;AAyCF,eAAO,MAAM,eAAe,QAAa,OAAO,CAAC,IAAI,CA4CpD,CAAC"}

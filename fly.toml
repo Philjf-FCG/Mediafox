@@ -1,0 +1,30 @@
+app = "fox-mediafox"
+primary_region = "lhr"
+
+[build]
+  [build.args]
+    VITE_GOOGLE_CLIENT_ID = ""
+
+[env]
+  PORT = "5004"
+  NODE_ENV = "production"
+  DATABASE_PATH = "/opt/data/mediafox.db"
+  MEDIA_STORAGE_PATH = "/opt/data/media"
+  AUTH_ADMIN_EMAILS = "philjfoxton@googlemail.com"
+
+[http_service]
+  internal_port = 5004
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
+
+[[mounts]]
+  source = "mediafox_data"
+  destination = "/opt/data"
