@@ -1,0 +1,19 @@
+steps:
+- name: gcr.io/cloud-builders/docker
+  args:
+    - build
+    - --build-arg
+    - VITE_GOOGLE_CLIENT_ID=${_VITE_GOOGLE_CLIENT_ID}
+    - -t
+    - ${_IMAGE}
+    - .
+
+images:
+- ${_IMAGE}
+
+substitutions:
+  _VITE_GOOGLE_CLIENT_ID: '407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com'
+  _IMAGE: 'europe-west2-docker.pkg.dev/$PROJECT_ID/fox-suite/mediafox'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
