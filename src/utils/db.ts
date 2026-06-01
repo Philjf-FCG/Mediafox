@@ -16,7 +16,7 @@ export const getDb = (): Database.Database => {
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   _db = new Database(dbPath);
-  _db.pragma('journal_mode = WAL');
+  _db.pragma('journal_mode = DELETE');
   _db.pragma('foreign_keys = ON');
   migrate(_db);
   return _db;
