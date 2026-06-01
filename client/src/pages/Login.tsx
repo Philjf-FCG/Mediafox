@@ -19,8 +19,6 @@ interface Props {
   onAuthenticated: () => Promise<void>;
 }
 
-const DEFAULT_GOOGLE_CLIENT_ID = '407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com';
-
 const styles = {
   page:    { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #161b27 0%, #0f2027 100%)', padding: 20 } as React.CSSProperties,
   card:    { background: '#1e2433', border: '1px solid #2d3748', padding: '40px', borderRadius: 8, boxShadow: '0 10px 40px rgba(0,0,0,0.4)', maxWidth: 420, width: '100%', textAlign: 'center' as const },
@@ -35,14 +33,21 @@ const styles = {
 };
 
 export default function Login({ authEnabled, onAuthenticated }: Props) {
-  const googleClientId = (import.meta as unknown as { env: Record<string, string> }).env.VITE_GOOGLE_CLIENT_ID || DEFAULT_GOOGLE_CLIENT_ID;
+  const [googleClientId, setGoogleClientId] = useState('');
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   const btnRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!googleClientId) return;
+    api.get<{ googleClientId: string | null }>('/auth/config')
+      .then(r => { setGoogleClientId(r.data?.googleClientId || ''); setConfigLoaded(true); })
+      .catch(() => setConfigLoaded(true));
+  }, []);
+
+  useEffect(() => {
+    if (!configLoaded || !googleClientId) return;
     const existing = document.querySelector('script[data-gsi]') as HTMLScriptElement | null;
     if (existing) {
       if (window.google?.accounts?.id) { setScriptLoaded(true); return; }
@@ -94,7 +99,7 @@ export default function Login({ authEnabled, onAuthenticated }: Props) {
 
   const showGoogle = authEnabled && Boolean(googleClientId);
   const showDevBypass = !authEnabled;
-  const showMisconfigured = authEnabled && !googleClientId;
+  const showMisconfigured = authEnabled && configLoaded && !googleClientId;
 
   return (
     <div style={styles.page}>
@@ -121,7 +126,7 @@ export default function Login({ authEnabled, onAuthenticated }: Props) {
         {showMisconfigured ? (
           <div style={styles.warn}>
             <strong>Google OAuth not configured.</strong><br />
-            Set <code>GOOGLE_CLIENT_ID</code> as a Fly secret and <code>VITE_GOOGLE_CLIENT_ID</code> as a build arg in <code>fly.toml</code>, then redeploy.
+            Set <code>GOOGLE_CLIENT_ID</code> in the server environment.
           </div>
         ) : null}
 

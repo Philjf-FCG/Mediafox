@@ -15,8 +15,6 @@ RUN npm ci --prefix client
 COPY client/index.html ./client/
 COPY client/vite.config.ts ./client/
 COPY client/src ./client/src
-ARG VITE_GOOGLE_CLIENT_ID=""
-ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
 RUN npm run build:client
 
 FROM node:24-slim

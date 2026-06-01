@@ -1,19 +1,29 @@
 steps:
 - name: gcr.io/cloud-builders/docker
-  args:
-    - build
-    - --build-arg
-    - VITE_GOOGLE_CLIENT_ID=${_VITE_GOOGLE_CLIENT_ID}
-    - -t
-    - ${_IMAGE}
-    - .
+  args: [build, -t, 'europe-west2-docker.pkg.dev/$PROJECT_ID/fox-suite/mediafox', .]
 
-images:
-- ${_IMAGE}
+- name: gcr.io/cloud-builders/docker
+  args: [push, 'europe-west2-docker.pkg.dev/$PROJECT_ID/fox-suite/mediafox']
+
+- name: gcr.io/google.com/cloudsdktool/cloud-sdk
+  entrypoint: gcloud
+  args:
+  - run
+  - deploy
+  - mediafox
+  - --image=europe-west2-docker.pkg.dev/$PROJECT_ID/fox-suite/mediafox
+  - --region=europe-west2
+  - --platform=managed
+  - --port=5004
+  - --update-env-vars=GOOGLE_CLIENT_ID=${_GOOGLE_CLIENT_ID},NODE_ENV=production,AUTH_ENABLED=true,AUTH_ADMIN_EMAILS=philjfoxton@googlemail.com,DATABASE_PATH=/opt/data/mediafox.db,MEDIA_STORAGE_PATH=/opt/data/media,CORS_ALLOWED_ORIGINS=https://mediafox-843941617497.europe-west2.run.app
+
+# Env vars set separately (persist across deploys, not managed here):
+#   MEDIAFOX_JWT_SECRET  — gcloud run services update mediafox --region europe-west2 --update-env-vars MEDIAFOX_JWT_SECRET=<random-48-char-string>
+#   TOKEN_ENCRYPTION_KEY — gcloud run services update mediafox --region europe-west2 --update-secrets TOKEN_ENCRYPTION_KEY=mediafox-token-key:latest
+#   FOXAUTH_JWT_SECRET   — gcloud run services update mediafox --region europe-west2 --update-secrets FOXAUTH_JWT_SECRET=foxauth-jwt-secret:latest
 
 substitutions:
-  _VITE_GOOGLE_CLIENT_ID: '407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com'
-  _IMAGE: 'europe-west2-docker.pkg.dev/$PROJECT_ID/fox-suite/mediafox'
+  _GOOGLE_CLIENT_ID: 843941617497-k5aaruuev5s85ef4qa2oo71v2ckvq6ip.apps.googleusercontent.com
 
 options:
   logging: CLOUD_LOGGING_ONLY

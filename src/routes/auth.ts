@@ -29,10 +29,7 @@ const parseList = (raw: string): string[] =>
     .map(v => v.trim())
     .filter(Boolean);
 
-const DEFAULT_GOOGLE_CLIENT_ID = '407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com';
-
 const GOOGLE_CLIENT_IDS = Array.from(new Set([
-  DEFAULT_GOOGLE_CLIENT_ID,
   ...parseList(process.env.GOOGLE_CLIENT_IDS || ''),
   ...(process.env.GOOGLE_CLIENT_ID ? [process.env.GOOGLE_CLIENT_ID.trim()] : []),
 ])).filter(Boolean);
@@ -177,6 +174,11 @@ router.post('/google', async (req: Request, res: Response) => {
       : message;
     res.status(401).json({ error: 'Google sign-in failed.', detail });
   }
+});
+
+// GET /api/auth/config — public config for the login page
+router.get('/config', (_req: Request, res: Response) => {
+  res.json({ googleClientId: GOOGLE_CLIENT_IDS[0] || null });
 });
 
 // POST /api/auth/logout
