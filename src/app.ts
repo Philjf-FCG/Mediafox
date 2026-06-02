@@ -1,6 +1,7 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
+import helmet from 'helmet';
 import path from 'path';
 import fs from 'fs';
 import { requireAuth, requireCsrfProtection } from './utils/auth';
@@ -46,6 +47,10 @@ export const createApp = (): express.Application => {
   const allowedOrigins = loadAllowedOrigins();
   const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 
+  app.use(helmet({
+    contentSecurityPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  }));
   app.use(cors({
     origin: (origin, cb) => {
       if (!origin) return cb(null, true);
