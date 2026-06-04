@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback } from 'react';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, addMonths, subMonths } from 'date-fns';
 import { api } from '../api';
+import type { AppTheme } from '../theme';
 
 interface Post { id: string; status: string; scheduled_at: string | null; published_at: string | null; title: string | null; variants: { account_id: string }[]; }
 
 const STATUS_COLORS: Record<string, string> = { scheduled: '#3b82f6', published: '#22c55e', failed: '#ef4444', default: '#64748b' };
-const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24 };
 
-export default function Calendar() {
+export default function Calendar({ colors }: { colors: AppTheme }) {
+  const card: React.CSSProperties = { background: colors.surface2, borderRadius: 12, padding: 24 };
+
   const [month, setMonth] = useState(new Date());
   const [posts, setPosts] = useState<Post[]>([]);
   const [selected, setSelected] = useState<Post | null>(null);
@@ -55,25 +57,25 @@ export default function Calendar() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Calendar</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: colors.text }}>Calendar</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {rescheduleMsg && <span style={{ fontSize: 13, color: rescheduleMsg.includes('failed') ? '#ef4444' : '#22c55e' }}>{rescheduleMsg}</span>}
-          <button style={{ background: '#2d3748', border: 'none', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }} onClick={() => setMonth(m => subMonths(m, 1))}>‹</button>
-          <span style={{ fontWeight: 700, minWidth: 140, textAlign: 'center' }}>{format(month, 'MMMM yyyy')}</span>
-          <button style={{ background: '#2d3748', border: 'none', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }} onClick={() => setMonth(m => addMonths(m, 1))}>›</button>
+          <button style={{ background: colors.surface, border: 'none', color: colors.text, padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }} onClick={() => setMonth(m => subMonths(m, 1))}>‹</button>
+          <span style={{ fontWeight: 700, minWidth: 140, textAlign: 'center', color: colors.text }}>{format(month, 'MMMM yyyy')}</span>
+          <button style={{ background: colors.surface, border: 'none', color: colors.text, padding: '8px 16px', borderRadius: 8, cursor: 'pointer' }} onClick={() => setMonth(m => addMonths(m, 1))}>›</button>
         </div>
       </div>
 
       <div style={{ ...card, padding: 0, overflow: 'hidden' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', background: '#161b27' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', background: colors.surface }}>
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
-            <div key={d} style={{ padding: '10px 0', textAlign: 'center', fontSize: 12, color: '#64748b', fontWeight: 600 }}>{d}</div>
+            <div key={d} style={{ padding: '10px 0', textAlign: 'center', fontSize: 12, color: colors.textMuted, fontWeight: 600 }}>{d}</div>
           ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: '#2d3748' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: colors.border }}>
           {Array.from({ length: startOfMonth(month).getDay() }).map((_, i) => (
-            <div key={`pad-${i}`} style={{ background: '#161b27', minHeight: 90 }} />
+            <div key={`pad-${i}`} style={{ background: colors.surface, minHeight: 90 }} />
           ))}
 
           {days.map(day => {
@@ -83,12 +85,12 @@ export default function Calendar() {
             const isOver = dragOver === dayKey;
             return (
               <div key={dayKey}
-                style={{ background: isOver ? '#263040' : '#1e2333', minHeight: 90, padding: 8, cursor: dayPosts.length ? 'pointer' : 'default', transition: 'background .15s', outline: isOver ? '2px solid #3b82f6' : 'none', outlineOffset: -2 }}
+                style={{ background: isOver ? colors.surface2 : colors.surface2, minHeight: 90, padding: 8, cursor: dayPosts.length ? 'pointer' : 'default', transition: 'background .15s', outline: isOver ? '2px solid #3b82f6' : 'none', outlineOffset: -2, filter: isOver ? 'brightness(1.1)' : undefined }}
                 onDragOver={e => { e.preventDefault(); setDragOver(dayKey); }}
                 onDragLeave={() => setDragOver(null)}
                 onDrop={() => { handleDrop(day); setDragOver(null); }}
                 onClick={() => dayPosts.length === 1 && setSelected(dayPosts[0])}>
-                <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 400, color: isToday ? '#f97316' : '#94a3b8', marginBottom: 4 }}>
+                <div style={{ fontSize: 12, fontWeight: isToday ? 800 : 400, color: isToday ? '#f97316' : colors.textMuted, marginBottom: 4 }}>
                   {format(day, 'd')}
                 </div>
                 {dayPosts.slice(0, 3).map(p => (
@@ -101,7 +103,7 @@ export default function Calendar() {
                     {p.title ?? 'Post'}
                   </div>
                 ))}
-                {dayPosts.length > 3 && <div style={{ fontSize: 10, color: '#64748b' }}>+{dayPosts.length - 3} more</div>}
+                {dayPosts.length > 3 && <div style={{ fontSize: 10, color: colors.textMuted }}>+{dayPosts.length - 3} more</div>}
               </div>
             );
           })}
@@ -111,28 +113,28 @@ export default function Calendar() {
       {/* Legend */}
       <div style={{ display: 'flex', gap: 16, marginTop: 12, fontSize: 12 }}>
         {Object.entries(STATUS_COLORS).filter(([k]) => k !== 'default').map(([k, v]) => (
-          <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#94a3b8' }}>
+          <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, color: colors.textMuted }}>
             <span style={{ width: 10, height: 10, borderRadius: 2, background: v, display: 'inline-block' }} />
             {k}
           </span>
         ))}
-        <span style={{ color: '#64748b' }}>Drag scheduled posts to reschedule</span>
+        <span style={{ color: colors.textMuted }}>Drag scheduled posts to reschedule</span>
       </div>
 
       {/* Post detail modal */}
       {selected && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
           onClick={() => setSelected(null)}>
-          <div style={{ background: '#1e2333', borderRadius: 16, padding: 32, maxWidth: 480, width: '90%' }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontWeight: 700, marginBottom: 12 }}>{selected.title ?? 'Post'}</h3>
-            <div style={{ color: '#64748b', fontSize: 13, marginBottom: 8 }}>
+          <div style={{ background: colors.surface2, borderRadius: 16, padding: 32, maxWidth: 480, width: '90%' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ fontWeight: 700, marginBottom: 12, color: colors.text }}>{selected.title ?? 'Post'}</h3>
+            <div style={{ color: colors.textMuted, fontSize: 13, marginBottom: 8 }}>
               {selected.scheduled_at && `Scheduled: ${new Date(selected.scheduled_at).toLocaleString()}`}
               {selected.published_at && `Published: ${new Date(selected.published_at).toLocaleString()}`}
             </div>
             <span style={{ background: STATUS_COLORS[selected.status], color: '#fff', borderRadius: 4, padding: '2px 8px', fontSize: 12, fontWeight: 700 }}>{selected.status}</span>
-            <div style={{ marginTop: 12, fontSize: 13, color: '#94a3b8' }}>{selected.variants.length} variant(s)</div>
+            <div style={{ marginTop: 12, fontSize: 13, color: colors.textMuted }}>{selected.variants.length} variant(s)</div>
             <div style={{ display: 'flex', gap: 8, marginTop: 16 }}>
-              <button style={{ background: '#2d3748', border: 'none', color: '#e2e8f0', padding: '8px 20px', borderRadius: 8, cursor: 'pointer' }} onClick={() => setSelected(null)}>Close</button>
+              <button style={{ background: colors.surface, border: 'none', color: colors.text, padding: '8px 20px', borderRadius: 8, cursor: 'pointer' }} onClick={() => setSelected(null)}>Close</button>
               <a href="/compose" style={{ background: '#f97316', border: 'none', color: '#fff', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', textDecoration: 'none', fontSize: 14, fontWeight: 600 }}>+ New Post</a>
             </div>
           </div>

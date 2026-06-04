@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import type { AppTheme } from '../theme';
 
 interface Member { user_id: string; email: string; name: string; role: string; joined_at: string; }
 
 const ROLE_COLORS: Record<string, string> = { owner: '#f97316', manager: '#a78bfa', editor: '#60a5fa', viewer: '#94a3b8' };
-const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24, marginBottom: 20 };
-const input: React.CSSProperties = { background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 8, padding: '10px 14px', fontSize: 14 };
 
-export default function Team() {
+export default function Team({ colors }: { colors: AppTheme }) {
+  const card: React.CSSProperties = { background: colors.surface2, borderRadius: 12, padding: 24, marginBottom: 20 };
+  const input: React.CSSProperties = { background: colors.inputBg, border: `1px solid ${colors.border}`, color: colors.text, borderRadius: 8, padding: '10px 14px', fontSize: 14 };
+
   const [members, setMembers] = useState<Member[]>([]);
   const [myRole, setMyRole] = useState('');
   const [invite, setInvite] = useState({ email: '', name: '', role: 'editor' });
@@ -27,27 +29,27 @@ export default function Team() {
 
   return (
     <div style={{ maxWidth: 600 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Team</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24, color: colors.text }}>Team</h1>
 
       {msg && <p style={{ color: msg.includes('✓') ? '#22c55e' : '#ef4444', marginBottom: 16, fontSize: 14 }}>{msg}</p>}
 
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Members</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: colors.text }}>Members</h2>
         {members.map(m => (
-          <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid #2d3748' }}>
+          <div key={m.user_id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${colors.border}` }}>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{m.name}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>{m.email}</div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: colors.text }}>{m.name}</div>
+              <div style={{ fontSize: 12, color: colors.textMuted }}>{m.email}</div>
             </div>
-            <span style={{ fontSize: 11, fontWeight: 700, color: ROLE_COLORS[m.role] ?? '#94a3b8', background: '#0f1117', padding: '3px 10px', borderRadius: 10 }}>{m.role.toUpperCase()}</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: ROLE_COLORS[m.role] ?? colors.textMuted, background: colors.inputBg, padding: '3px 10px', borderRadius: 10 }}>{m.role.toUpperCase()}</span>
           </div>
         ))}
-        {members.length === 0 && <p style={{ color: '#64748b', fontSize: 14 }}>No members yet.</p>}
+        {members.length === 0 && <p style={{ color: colors.textMuted, fontSize: 14 }}>No members yet.</p>}
       </div>
 
       {canManage && (
         <div style={card}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Add Member</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: colors.text }}>Add Member</h2>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <input style={{ ...input, flex: 1 }} placeholder="Name" value={invite.name} onChange={e => setInvite(v => ({ ...v, name: e.target.value }))} />
             <input style={{ ...input, flex: 1 }} placeholder="Email" value={invite.email} onChange={e => setInvite(v => ({ ...v, email: e.target.value }))} />

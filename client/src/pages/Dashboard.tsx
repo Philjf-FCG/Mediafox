@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import type { AppTheme } from '../theme';
 
 interface Post { id: string; status: string; scheduled_at: string | null; published_at: string | null; title: string | null; variants: { platform?: string; account?: { platform: string } }[]; }
 
-const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24 };
-const statCard: React.CSSProperties = { ...card, textAlign: 'center' as const };
+export default function Dashboard({ colors }: { colors: AppTheme }) {
+  const card: React.CSSProperties = { background: colors.surface2, borderRadius: 12, padding: 24 };
+  const statCard: React.CSSProperties = { ...card, textAlign: 'center' as const };
 
-export default function Dashboard() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -25,34 +26,34 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Dashboard</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24, color: colors.text }}>Dashboard</h1>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 32 }}>
         <div style={statCard}>
           <div style={{ fontSize: 36, fontWeight: 800, color: '#f97316' }}>{scheduled.length}</div>
-          <div style={{ color: '#94a3b8', marginTop: 4 }}>Scheduled</div>
+          <div style={{ color: colors.textMuted, marginTop: 4 }}>Scheduled</div>
         </div>
         <div style={statCard}>
           <div style={{ fontSize: 36, fontWeight: 800, color: '#22c55e' }}>{published.length}</div>
-          <div style={{ color: '#94a3b8', marginTop: 4 }}>Published (30 days)</div>
+          <div style={{ color: colors.textMuted, marginTop: 4 }}>Published (30 days)</div>
         </div>
         <div style={statCard}>
-          <div style={{ fontSize: 36, fontWeight: 800, color: failed.length > 0 ? '#ef4444' : '#64748b' }}>{failed.length}</div>
-          <div style={{ color: '#94a3b8', marginTop: 4 }}>Failed</div>
+          <div style={{ fontSize: 36, fontWeight: 800, color: failed.length > 0 ? '#ef4444' : colors.textMuted }}>{failed.length}</div>
+          <div style={{ color: colors.textMuted, marginTop: 4 }}>Failed</div>
         </div>
       </div>
 
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Upcoming Posts</h2>
-        {loading && <p style={{ color: '#64748b' }}>Loading…</p>}
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: colors.text }}>Upcoming Posts</h2>
+        {loading && <p style={{ color: colors.textMuted }}>Loading…</p>}
         {!loading && scheduled.length === 0 && (
-          <p style={{ color: '#64748b', fontSize: 14 }}>No posts scheduled. <a href="/compose" style={{ color: '#f97316' }}>Create one →</a></p>
+          <p style={{ color: colors.textMuted, fontSize: 14 }}>No posts scheduled. <a href="/compose" style={{ color: '#f97316' }}>Create one →</a></p>
         )}
         {scheduled.slice(0, 5).map(p => (
-          <div key={p.id} style={{ padding: '12px 0', borderBottom: '1px solid #2d3748', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div key={p.id} style={{ padding: '12px 0', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{p.title ?? 'Untitled'}</div>
-              <div style={{ color: '#64748b', fontSize: 12, marginTop: 2 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, color: colors.text }}>{p.title ?? 'Untitled'}</div>
+              <div style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>
                 {p.scheduled_at ? new Date(p.scheduled_at).toLocaleString() : 'Unscheduled'}
               </div>
             </div>

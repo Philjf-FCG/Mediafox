@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
+import type { AppTheme } from '../theme';
 
 interface Account { id: string; platform: string; display_name: string; type: string; status: string; }
 interface LinkPreview { url: string; title: string | null; description: string | null; image: string | null; site_name: string | null; }
@@ -23,21 +24,21 @@ const PLATFORM_COLORS: Record<string, string> = {
   instagram: '#e1306c', discord: '#5865f2', slack: '#4a154b',
 };
 
-const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24, marginBottom: 20 };
-const label: React.CSSProperties = { fontSize: 12, color: '#94a3b8', marginBottom: 6, display: 'block', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' };
-const input: React.CSSProperties = { background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 8, padding: '10px 14px', width: '100%', fontSize: 14 };
-const textarea: React.CSSProperties = { ...input, resize: 'vertical', minHeight: 120, fontFamily: 'inherit', lineHeight: 1.6 };
-const btn = (primary = false): React.CSSProperties => ({
-  padding: '10px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14,
-  background: primary ? '#f97316' : '#2d3748', color: primary ? '#fff' : '#e2e8f0',
-});
-const chip = (active: boolean, color?: string): React.CSSProperties => ({
-  padding: '6px 14px', borderRadius: 20, border: `2px solid ${active ? (color ?? '#f97316') : '#2d3748'}`,
-  background: active ? `${color ?? '#f97316'}1a` : 'transparent', color: active ? (color ?? '#f97316') : '#64748b',
-  cursor: 'pointer', fontSize: 13, fontWeight: 600,
-});
+export default function Compose({ colors }: { colors: AppTheme }) {
+  const card: React.CSSProperties = { background: colors.surface2, borderRadius: 12, padding: 24, marginBottom: 20 };
+  const label: React.CSSProperties = { fontSize: 12, color: colors.textMuted, marginBottom: 6, display: 'block', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em' };
+  const input: React.CSSProperties = { background: colors.inputBg, border: `1px solid ${colors.border}`, color: colors.text, borderRadius: 8, padding: '10px 14px', width: '100%', fontSize: 14 };
+  const textarea: React.CSSProperties = { ...input, resize: 'vertical', minHeight: 120, fontFamily: 'inherit', lineHeight: 1.6 };
+  const btn = (primary = false): React.CSSProperties => ({
+    padding: '10px 20px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600, fontSize: 14,
+    background: primary ? '#f97316' : colors.surface, color: primary ? '#fff' : colors.text,
+  });
+  const chip = (active: boolean, color?: string): React.CSSProperties => ({
+    padding: '6px 14px', borderRadius: 20, border: `2px solid ${active ? (color ?? '#f97316') : colors.border}`,
+    background: active ? `${color ?? '#f97316'}1a` : 'transparent', color: active ? (color ?? '#f97316') : colors.textMuted,
+    cursor: 'pointer', fontSize: 13, fontWeight: 600,
+  });
 
-export default function Compose() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [body, setBody] = useState('');
@@ -214,7 +215,7 @@ export default function Compose() {
 
   return (
     <div style={{ maxWidth: 800 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Compose</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24, color: colors.text }}>Compose</h1>
 
       {/* Context */}
       <div style={card}>
@@ -239,7 +240,7 @@ export default function Compose() {
             </button>
           ))}
           {accounts.filter(a => a.type === postType).length === 0 && (
-            <p style={{ color: '#64748b', fontSize: 14 }}>No {postType} accounts connected. <a href="/accounts" style={{ color: '#f97316' }}>Connect one →</a></p>
+            <p style={{ color: colors.textMuted, fontSize: 14 }}>No {postType} accounts connected. <a href="/accounts" style={{ color: '#f97316' }}>Connect one →</a></p>
           )}
         </div>
       </div>
@@ -269,7 +270,7 @@ export default function Compose() {
             {aiSuggestions.length > 0 && (
               <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {aiSuggestions.map((s, i) => (
-                  <div key={i} style={{ background: '#0f1117', border: '1px solid #2d3748', borderRadius: 8, padding: 12, fontSize: 13, color: '#e2e8f0', cursor: 'pointer' }}
+                  <div key={i} style={{ background: colors.inputBg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, fontSize: 13, color: colors.text, cursor: 'pointer' }}
                     onClick={() => { setBody(s); setAiSuggestions([]); }}>
                     {s}
                   </div>
@@ -293,7 +294,7 @@ export default function Compose() {
                   const limit = LIMITS[a.platform] ?? 5000;
                   const over = body.length > limit;
                   return (
-                    <span key={a.id} style={{ fontSize: 12, color: over ? '#ef4444' : '#64748b' }}>
+                    <span key={a.id} style={{ fontSize: 12, color: over ? '#ef4444' : colors.textMuted }}>
                       {a.platform}: {body.length}/{limit}{over ? ' ⚠ over limit' : ''}
                     </span>
                   );
@@ -309,11 +310,11 @@ export default function Compose() {
             return (
               <div key={a.id} style={{ marginBottom: 16 }}>
                 <span style={{ ...label, color: PLATFORM_COLORS[a.platform] }}>{a.platform} · {a.display_name}</span>
-                <textarea style={{ ...textarea, borderColor: over ? '#ef4444' : '#2d3748' }}
+                <textarea style={{ ...textarea, borderColor: over ? '#ef4444' : colors.border }}
                   value={text}
                   onChange={e => setVariants(v => ({ ...v, [a.id]: e.target.value }))}
                   placeholder={`Post for ${a.platform}…`} />
-                <span style={{ fontSize: 12, color: over ? '#ef4444' : '#64748b' }}>{text.length}/{limit}</span>
+                <span style={{ fontSize: 12, color: over ? '#ef4444' : colors.textMuted }}>{text.length}/{limit}</span>
               </div>
             );
           })
@@ -322,16 +323,16 @@ export default function Compose() {
 
       {/* Link preview card */}
       {linkPreview && (
-        <div style={{ ...card, display: 'flex', gap: 16, padding: 16, border: '1px solid #2d3748' }}>
+        <div style={{ ...card, display: 'flex', gap: 16, padding: 16, border: `1px solid ${colors.border}` }}>
           {linkPreview.image && (
             <img src={linkPreview.image} alt="" style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} onError={e => (e.currentTarget.style.display = 'none')} />
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 12, color: '#64748b', marginBottom: 2 }}>{linkPreview.site_name ?? new URL(linkPreview.url).hostname}</div>
-            <div style={{ fontWeight: 600, fontSize: 14, color: '#e2e8f0', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{linkPreview.title}</div>
-            {linkPreview.description && <div style={{ fontSize: 13, color: '#94a3b8', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{linkPreview.description}</div>}
+            <div style={{ fontSize: 12, color: colors.textMuted, marginBottom: 2 }}>{linkPreview.site_name ?? new URL(linkPreview.url).hostname}</div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: colors.text, marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{linkPreview.title}</div>
+            {linkPreview.description && <div style={{ fontSize: 13, color: colors.textMuted, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{linkPreview.description}</div>}
           </div>
-          <button onClick={() => setLinkPreview(null)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: 18, alignSelf: 'flex-start' }}>×</button>
+          <button onClick={() => setLinkPreview(null)} style={{ background: 'none', border: 'none', color: colors.textMuted, cursor: 'pointer', fontSize: 18, alignSelf: 'flex-start' }}>×</button>
         </div>
       )}
 
@@ -352,32 +353,32 @@ export default function Compose() {
 
       {lastPostId && (
         <div style={{ ...card, marginTop: 20 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>TikTok Assisted Handoff</h2>
-          <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>Create a handoff task for manual TikTok Business publish and track completion URL later.</p>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: colors.text }}>TikTok Assisted Handoff</h2>
+          <p style={{ fontSize: 12, color: colors.textMuted, marginBottom: 10 }}>Create a handoff task for manual TikTok Business publish and track completion URL later.</p>
           <span style={label}>Caption</span>
           <textarea style={{ ...textarea, minHeight: 90, marginBottom: 10 }} value={tiktokCaption} onChange={e => setTiktokCaption(e.target.value)} placeholder="TikTok caption" />
           <span style={label}>Handoff note (optional)</span>
           <input style={{ ...input, marginBottom: 10 }} value={tiktokNote} onChange={e => setTiktokNote(e.target.value)} placeholder="Who should publish, timing, CTA, etc." />
-          <button style={{ ...btn(true), background: '#111827' }} onClick={() => { void createTikTokAssist(); }} disabled={tiktokSubmitting}>
+          <button style={{ ...btn(true), background: colors.surface }} onClick={() => { void createTikTokAssist(); }} disabled={tiktokSubmitting}>
             {tiktokSubmitting ? 'Creating…' : 'Create TikTok Handoff'}
           </button>
 
-          <div style={{ marginTop: 14, borderTop: '1px solid #2d3748', paddingTop: 14 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Current Handoffs</h3>
-            {loadingTikTokAssists && <p style={{ color: '#94a3b8', fontSize: 13 }}>Loading handoffs…</p>}
+          <div style={{ marginTop: 14, borderTop: `1px solid ${colors.border}`, paddingTop: 14 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: colors.text }}>Current Handoffs</h3>
+            {loadingTikTokAssists && <p style={{ color: colors.textMuted, fontSize: 13 }}>Loading handoffs…</p>}
             {!loadingTikTokAssists && tiktokAssists.length === 0 && (
-              <p style={{ color: '#64748b', fontSize: 13 }}>No TikTok handoffs created for this post yet.</p>
+              <p style={{ color: colors.textMuted, fontSize: 13 }}>No TikTok handoffs created for this post yet.</p>
             )}
             {!loadingTikTokAssists && tiktokAssists.length > 0 && (
               <div style={{ display: 'grid', gap: 10 }}>
                 {tiktokAssists.map(assist => (
-                  <div key={assist.id} style={{ background: '#0f1117', border: '1px solid #2d3748', borderRadius: 8, padding: 10 }}>
+                  <div key={assist.id} style={{ background: colors.inputBg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 6 }}>
-                      <span style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>Status: {assist.status}</span>
-                      <span style={{ color: '#64748b', fontSize: 12 }}>{new Date(assist.created_at).toLocaleString()}</span>
+                      <span style={{ color: colors.text, fontSize: 13, fontWeight: 600 }}>Status: {assist.status}</span>
+                      <span style={{ color: colors.textMuted, fontSize: 12 }}>{new Date(assist.created_at).toLocaleString()}</span>
                     </div>
-                    <p style={{ color: '#cbd5e1', fontSize: 13, marginBottom: 6, whiteSpace: 'pre-wrap' }}>{assist.caption}</p>
-                    {assist.handoff_note && <p style={{ color: '#94a3b8', fontSize: 12, marginBottom: 6 }}>Note: {assist.handoff_note}</p>}
+                    <p style={{ color: colors.text, fontSize: 13, marginBottom: 6, whiteSpace: 'pre-wrap' }}>{assist.caption}</p>
+                    {assist.handoff_note && <p style={{ color: colors.textMuted, fontSize: 12, marginBottom: 6 }}>Note: {assist.handoff_note}</p>}
                     {assist.publish_url ? (
                       <a href={assist.publish_url} target="_blank" rel="noreferrer" style={{ color: '#22c55e', fontSize: 12 }}>Published URL ↗</a>
                     ) : (

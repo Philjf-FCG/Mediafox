@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import type { AppTheme } from '../theme';
 
 interface Account { id: string; platform: string; display_name: string; type: string; status: string; token_expires_at: string | null; connected_at: string; }
 
@@ -8,10 +9,12 @@ const PLATFORM_COLORS: Record<string, string> = {
   instagram: '#e1306c', discord: '#5865f2', slack: '#4a154b',
 };
 
-const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24, marginBottom: 20 };
 const statusColor = (s: string) => s === 'active' ? '#22c55e' : s === 'expired' ? '#f97316' : '#ef4444';
 
-export default function Accounts() {
+export default function Accounts({ colors }: { colors: AppTheme }) {
+  const card: React.CSSProperties = { background: colors.surface2, borderRadius: 12, padding: 24, marginBottom: 20 };
+  const input: React.CSSProperties = { background: colors.inputBg, border: `1px solid ${colors.border}`, color: colors.text, borderRadius: 8, padding: '10px 14px', width: '100%', fontSize: 14, marginBottom: 10 };
+
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showBluesky, setShowBluesky] = useState(false);
   const [bskyHandle, setBskyHandle] = useState('');
@@ -64,47 +67,45 @@ export default function Accounts() {
   const AccountList = ({ list }: { list: Account[] }) => (
     <>
       {list.map(a => (
-        <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid #2d3748' }}>
+        <div key={a.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 0', borderBottom: `1px solid ${colors.border}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ width: 10, height: 10, borderRadius: '50%', background: PLATFORM_COLORS[a.platform] ?? '#64748b' }} />
+            <div style={{ width: 10, height: 10, borderRadius: '50%', background: PLATFORM_COLORS[a.platform] ?? colors.textMuted }} />
             <div>
-              <div style={{ fontWeight: 600, fontSize: 14 }}>{a.display_name}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>{a.platform} · connected {new Date(a.connected_at).toLocaleDateString()}</div>
+              <div style={{ fontWeight: 600, fontSize: 14, color: colors.text }}>{a.display_name}</div>
+              <div style={{ fontSize: 12, color: colors.textMuted }}>{a.platform} · connected {new Date(a.connected_at).toLocaleDateString()}</div>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: statusColor(a.status) }}>{a.status.toUpperCase()}</span>
-            <button style={{ background: '#2d3748', border: 'none', color: '#ef4444', padding: '5px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }} onClick={() => disconnect(a.id)}>Disconnect</button>
+            <button style={{ background: colors.surface, border: 'none', color: '#ef4444', padding: '5px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 12 }} onClick={() => disconnect(a.id)}>Disconnect</button>
           </div>
         </div>
       ))}
-      {list.length === 0 && <p style={{ color: '#64748b', fontSize: 14 }}>No accounts connected.</p>}
+      {list.length === 0 && <p style={{ color: colors.textMuted, fontSize: 14 }}>No accounts connected.</p>}
     </>
   );
-
-  const input: React.CSSProperties = { background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 8, padding: '10px 14px', width: '100%', fontSize: 14, marginBottom: 10 };
 
   return (
     <div style={{ maxWidth: 700 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Accounts</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: colors.text }}>Accounts</h1>
       </div>
 
       {msg && <p style={{ color: msg.includes('✓') ? '#22c55e' : '#ef4444', marginBottom: 16, fontSize: 14 }}>{msg}</p>}
 
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Company Accounts</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: colors.text }}>Company Accounts</h2>
         <AccountList list={company} />
       </div>
 
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Personal Accounts</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: colors.text }}>Personal Accounts</h2>
         <AccountList list={personal} />
       </div>
 
       {/* Connect buttons */}
       <div style={{ ...card, display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, width: '100%', marginBottom: 4 }}>Connect</h2>
+        <h2 style={{ fontSize: 16, fontWeight: 700, width: '100%', marginBottom: 4, color: colors.text }}>Connect</h2>
         <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#0085ff', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => setShowBluesky(v => !v)}>+ Bluesky</button>
         <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#5865f2', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => setShowDiscord(v => !v)}>+ Discord Webhook</button>
         <button style={{ padding: '9px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', background: '#4a154b', color: '#fff', fontWeight: 600, fontSize: 13 }} onClick={() => { void startOauthConnect('/accounts/connect/slack', 'Slack integration not configured'); }}>+ Slack</button>
@@ -114,12 +115,12 @@ export default function Accounts() {
 
       {showBluesky && (
         <div style={card}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Connect Bluesky</h3>
+          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: colors.text }}>Connect Bluesky</h3>
           <input style={input} placeholder="Handle (e.g. you.bsky.social)" value={bskyHandle} onChange={e => setBskyHandle(e.target.value)} />
           <input style={input} type="password" placeholder="App Password (create in Bluesky Settings)" value={bskyPass} onChange={e => setBskyPass(e.target.value)} />
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
             {(['company', 'personal'] as const).map(t => (
-              <button key={t} style={{ padding: '6px 14px', borderRadius: 20, border: `2px solid ${bskyType === t ? '#0085ff' : '#2d3748'}`, background: bskyType === t ? '#0085ff1a' : 'transparent', color: bskyType === t ? '#0085ff' : '#64748b', cursor: 'pointer', fontSize: 12, fontWeight: 600 }} onClick={() => setBskyType(t)}>{t}</button>
+              <button key={t} style={{ padding: '6px 14px', borderRadius: 20, border: `2px solid ${bskyType === t ? '#0085ff' : colors.border}`, background: bskyType === t ? '#0085ff1a' : 'transparent', color: bskyType === t ? '#0085ff' : colors.textMuted, cursor: 'pointer', fontSize: 12, fontWeight: 600 }} onClick={() => setBskyType(t)}>{t}</button>
             ))}
           </div>
           <button style={{ background: '#0085ff', border: 'none', color: '#fff', padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={connectBluesky}>Connect</button>
@@ -128,8 +129,8 @@ export default function Accounts() {
 
       {showDiscord && (
         <div style={card}>
-          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Connect Discord Webhook</h3>
-          <p style={{ fontSize: 12, color: '#94a3b8', marginBottom: 12 }}>Create a webhook in Discord: Channel Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL</p>
+          <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12, color: colors.text }}>Connect Discord Webhook</h3>
+          <p style={{ fontSize: 12, color: colors.textMuted, marginBottom: 12 }}>Create a webhook in Discord: Channel Settings → Integrations → Webhooks → New Webhook → Copy Webhook URL</p>
           <input style={input} placeholder="Display name (e.g. #announcements)" value={webhookName} onChange={e => setWebhookName(e.target.value)} />
           <input style={input} placeholder="Webhook URL" value={webhookUrl} onChange={e => setWebhookUrl(e.target.value)} />
           <button style={{ background: '#5865f2', border: 'none', color: '#fff', padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={connectDiscordWebhook}>Connect</button>

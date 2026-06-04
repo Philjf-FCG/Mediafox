@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import { api, initializeCsrfToken, clearCsrfToken } from './api';
+import { useTheme } from './hooks/useTheme';
+import { getTheme } from './theme';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Compose from './pages/Compose';
@@ -38,19 +40,10 @@ const NAV = [
   { to: '/settings',  label: 'Settings',   icon: '⚙' },
 ];
 
-const styles = {
-  shell:   { display: 'flex', minHeight: '100vh' } as React.CSSProperties,
-  nav:     { width: 220, background: '#161b27', borderRight: '1px solid #2d3748', padding: '24px 0', flexShrink: 0, display: 'flex', flexDirection: 'column' as const },
-  logo:    { padding: '0 20px 24px', fontSize: 20, fontWeight: 700, color: '#f97316', letterSpacing: '-0.5px' },
-  link:    { display: 'flex', alignItems: 'center', gap: 10, padding: '9px 20px', color: '#94a3b8', textDecoration: 'none', fontSize: 14, transition: 'color .15s' },
-  main:    { flex: 1, padding: 32, overflow: 'auto' },
-  userBar: { marginTop: 'auto', padding: '16px 20px', borderTop: '1px solid #2d3748' },
-  userEmail: { fontSize: 11, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, marginBottom: 8 },
-  logoutBtn: { background: 'transparent', border: '1px solid #374151', color: '#64748b', padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12, width: '100%' },
-  loading: { display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: '#94a3b8', background: '#0f1117', fontSize: 16 },
-};
-
 export default function App() {
+  const [theme, toggleTheme] = useTheme();
+  const colors = getTheme(theme);
+
   const [auth, setAuth] = useState<AuthState>({ loading: true, authEnabled: true, authenticated: false, user: null });
 
   const fetchMe = useCallback(async () => {
@@ -82,41 +75,75 @@ export default function App() {
   }, []);
 
   if (auth.loading) {
-    return <div style={styles.loading}>Loading MediaFox...</div>;
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', color: colors.textMuted, background: colors.bg, fontSize: 16 }}>
+        Loading MediaFox...
+      </div>
+    );
   }
 
   if (!auth.authenticated) {
-    return <Login authEnabled={auth.authEnabled} onAuthenticated={fetchMe} />;
+    return <Login authEnabled={auth.authEnabled} onAuthenticated={fetchMe} colors={colors} theme={theme} />;
   }
 
   return (
-    <div style={styles.shell}>
-      <nav style={styles.nav}>
-        <div style={styles.logo}>🦊 MediaFox</div>
+    <div style={{ display: 'flex', minHeight: '100vh', background: colors.bg, color: colors.text }}>
+      <nav style={{ width: 220, background: colors.navBg, borderRight: `1px solid ${colors.navBorder}`, padding: '24px 0', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '0 20px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: 20, fontWeight: 700, color: '#f97316', letterSpacing: '-0.5px' }}>🦊 MediaFox</span>
+          <button
+            onClick={toggleTheme}
+            style={{
+              padding: '4px 10px',
+              background: theme === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+              border: `1px solid ${colors.border}`,
+              borderRadius: '6px',
+              color: colors.text,
+              fontSize: '15px',
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {theme === 'dark' ? '☀️' : '🌙'}
+          </button>
+        </div>
         {NAV.map(n => (
           <NavLink key={n.to} to={n.to} end={n.to === '/'} style={({ isActive }) => ({
-            ...styles.link, color: isActive ? '#f97316' : '#94a3b8', background: isActive ? 'rgba(249,115,22,.08)' : 'transparent',
+            display: 'flex', alignItems: 'center', gap: 10, padding: '9px 20px',
+            color: isActive ? '#f97316' : colors.textMuted,
+            background: isActive ? 'rgba(249,115,22,.08)' : 'transparent',
+            textDecoration: 'none', fontSize: 14, transition: 'color .15s',
           })}>
             <span>{n.icon}</span>
             <span>{n.label}</span>
           </NavLink>
         ))}
-        <div style={styles.userBar}>
-          {auth.user?.email ? <div style={styles.userEmail}>{auth.user.email}</div> : null}
-          <button style={styles.logoutBtn} onClick={handleLogout}>Sign out</button>
+        <div style={{ marginTop: 'auto', padding: '16px 20px', borderTop: `1px solid ${colors.navBorder}` }}>
+          {auth.user?.email ? (
+            <div style={{ fontSize: 11, color: colors.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 8 }}>
+              {auth.user.email}
+            </div>
+          ) : null}
+          <button
+            style={{ background: 'transparent', border: `1px solid ${colors.border}`, color: colors.textMuted, padding: '5px 12px', borderRadius: 4, cursor: 'pointer', fontSize: 12, width: '100%' }}
+            onClick={handleLogout}
+          >
+            Sign out
+          </button>
         </div>
       </nav>
-      <main style={styles.main}>
+      <main style={{ flex: 1, padding: 32, overflow: 'auto', background: colors.bg, color: colors.text }}>
         <Routes>
-          <Route path="/"          element={<Dashboard />} />
-          <Route path="/compose"   element={<Compose />} />
-          <Route path="/calendar"  element={<Calendar />} />
-          <Route path="/inbox"     element={<Inbox />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/library"   element={<Library />} />
-          <Route path="/accounts"  element={<Accounts />} />
-          <Route path="/team"      element={<Team />} />
-          <Route path="/settings"  element={<Settings />} />
+          <Route path="/"          element={<Dashboard colors={colors} />} />
+          <Route path="/compose"   element={<Compose colors={colors} />} />
+          <Route path="/calendar"  element={<Calendar colors={colors} />} />
+          <Route path="/inbox"     element={<Inbox colors={colors} />} />
+          <Route path="/analytics" element={<Analytics colors={colors} />} />
+          <Route path="/library"   element={<Library colors={colors} />} />
+          <Route path="/accounts"  element={<Accounts colors={colors} />} />
+          <Route path="/team"      element={<Team colors={colors} />} />
+          <Route path="/settings"  element={<Settings colors={colors} />} />
           <Route path="*"          element={<Navigate to="/" replace />} />
         </Routes>
       </main>

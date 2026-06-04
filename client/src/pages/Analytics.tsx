@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
+import type { AppTheme } from '../theme';
 
 interface Engagement { likes: number; comments: number; shares: number; impressions: number; reach: number; }
 interface Overview { total_published: number; by_platform: Record<string, number>; posts: unknown[]; engagement: Engagement; }
@@ -12,20 +13,21 @@ interface CampaignRollup {
   by_platform: Record<string, number>;
 }
 
-const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24, marginBottom: 20 };
 const COLORS: Record<string, string> = {
   bluesky: '#0085ff', linkedin: '#0a66c2', facebook: '#1877f2',
   instagram: '#e1306c', discord: '#5865f2', slack: '#4a154b',
 };
 
-const StatCard = ({ label, value, color = '#22c55e' }: { label: string; value: number | string; color?: string }) => (
-  <div style={{ ...card, textAlign: 'center', flex: 1, minWidth: 120, marginBottom: 0 }}>
+const StatCard = ({ label, value, color = '#22c55e', bg }: { label: string; value: number | string; color?: string; bg: string }) => (
+  <div style={{ background: bg, borderRadius: 12, padding: 24, textAlign: 'center', flex: 1, minWidth: 120 }}>
     <div style={{ fontSize: 32, fontWeight: 800, color }}>{value}</div>
     <div style={{ color: '#94a3b8', fontSize: 13, marginTop: 4 }}>{label}</div>
   </div>
 );
 
-export default function Analytics() {
+export default function Analytics({ colors }: { colors: AppTheme }) {
+  const card: React.CSSProperties = { background: colors.surface2, borderRadius: 12, padding: 24, marginBottom: 20 };
+
   const [overview, setOverview] = useState<Overview | null>(null);
   const [days, setDays] = useState(30);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -60,16 +62,16 @@ export default function Analytics() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Analytics</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: colors.text }}>Analytics</h1>
         <div style={{ display: 'flex', gap: 10 }}>
-          <select style={{ background: '#1e2333', border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 8, padding: '8px 14px', fontSize: 14 }}
+          <select style={{ background: colors.surface2, border: `1px solid ${colors.border}`, color: colors.text, borderRadius: 8, padding: '8px 14px', fontSize: 14 }}
             value={days} onChange={e => setDays(Number(e.target.value))}>
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>
             <option value={90}>Last 90 days</option>
           </select>
           <a href={`/api/analytics/export/csv?from=${new Date(Date.now() - days * 86400000).toISOString()}&to=${new Date().toISOString()}`}
-            style={{ padding: '8px 16px', background: '#2d3748', color: '#e2e8f0', borderRadius: 8, fontSize: 14, textDecoration: 'none', fontWeight: 600 }}
+            style={{ padding: '8px 16px', background: colors.surface, color: colors.text, borderRadius: 8, fontSize: 14, textDecoration: 'none', fontWeight: 600 }}
             download>
             Export CSV
           </a>
@@ -78,27 +80,27 @@ export default function Analytics() {
 
       {/* Top stat row */}
       <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
-        <StatCard label={`Posts published (${days}d)`} value={overview?.total_published ?? '—'} />
-        <StatCard label="Total impressions" value={eng?.impressions.toLocaleString() ?? '—'} color="#818cf8" />
-        <StatCard label="Total reach" value={eng?.reach.toLocaleString() ?? '—'} color="#60a5fa" />
-        <StatCard label="Likes" value={eng?.likes.toLocaleString() ?? '—'} color="#f97316" />
-        <StatCard label="Comments" value={eng?.comments.toLocaleString() ?? '—'} color="#a78bfa" />
+        <StatCard label={`Posts published (${days}d)`} value={overview?.total_published ?? '—'} bg={colors.surface2} />
+        <StatCard label="Total impressions" value={eng?.impressions.toLocaleString() ?? '—'} color="#818cf8" bg={colors.surface2} />
+        <StatCard label="Total reach" value={eng?.reach.toLocaleString() ?? '—'} color="#60a5fa" bg={colors.surface2} />
+        <StatCard label="Likes" value={eng?.likes.toLocaleString() ?? '—'} color="#f97316" bg={colors.surface2} />
+        <StatCard label="Comments" value={eng?.comments.toLocaleString() ?? '—'} color="#a78bfa" bg={colors.surface2} />
       </div>
 
       {overview?.by_platform && Object.keys(overview.by_platform).length > 0 && (
         <div style={card}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16 }}>Posts by Platform</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, color: colors.text }}>Posts by Platform</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {Object.entries(overview.by_platform).sort(([,a],[,b]) => b - a).map(([platform, count]) => {
               const max = Math.max(...Object.values(overview.by_platform));
               return (
                 <div key={platform}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: COLORS[platform] ?? '#94a3b8' }}>{platform}</span>
-                    <span style={{ fontSize: 13, color: '#94a3b8' }}>{count} posts</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: COLORS[platform] ?? colors.textMuted }}>{platform}</span>
+                    <span style={{ fontSize: 13, color: colors.textMuted }}>{count} posts</span>
                   </div>
-                  <div style={{ background: '#2d3748', borderRadius: 4, height: 8 }}>
-                    <div style={{ background: COLORS[platform] ?? '#64748b', borderRadius: 4, height: 8, width: `${(count / max) * 100}%`, transition: 'width .3s' }} />
+                  <div style={{ background: colors.border, borderRadius: 4, height: 8 }}>
+                    <div style={{ background: COLORS[platform] ?? colors.textMuted, borderRadius: 4, height: 8, width: `${(count / max) * 100}%`, transition: 'width .3s' }} />
                   </div>
                 </div>
               );
@@ -110,11 +112,11 @@ export default function Analytics() {
       {/* Per-account breakdown */}
       {accounts.length > 0 && (
         <div style={card}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Per-Account Breakdown</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: colors.text }}>Per-Account Breakdown</h2>
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             {accounts.filter(a => a.platform !== 'discord' && a.platform !== 'slack').map(a => (
               <button key={a.id} onClick={() => setSelectedAccount(selectedAccount === a.id ? null : a.id)}
-                style={{ padding: '6px 14px', borderRadius: 20, border: `2px solid ${selectedAccount === a.id ? (COLORS[a.platform] ?? '#f97316') : '#2d3748'}`, background: selectedAccount === a.id ? `${(COLORS[a.platform] ?? '#f97316')}22` : 'transparent', color: selectedAccount === a.id ? (COLORS[a.platform] ?? '#f97316') : '#94a3b8', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                style={{ padding: '6px 14px', borderRadius: 20, border: `2px solid ${selectedAccount === a.id ? (COLORS[a.platform] ?? '#f97316') : colors.border}`, background: selectedAccount === a.id ? `${(COLORS[a.platform] ?? '#f97316')}22` : 'transparent', color: selectedAccount === a.id ? (COLORS[a.platform] ?? '#f97316') : colors.textMuted, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
                 {a.display_name}
               </button>
             ))}
@@ -122,7 +124,7 @@ export default function Analytics() {
           {selectedAccount && acctVariants.length > 0 && (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ color: '#64748b', borderBottom: '1px solid #2d3748' }}>
+                <tr style={{ color: colors.textMuted, borderBottom: `1px solid ${colors.border}` }}>
                   <th style={{ textAlign: 'left', padding: '6px 0' }}>Published</th>
                   <th style={{ textAlign: 'right', padding: '6px 0' }}>Likes</th>
                   <th style={{ textAlign: 'right', padding: '6px 0' }}>Comments</th>
@@ -132,27 +134,27 @@ export default function Analytics() {
               </thead>
               <tbody>
                 {acctVariants.map(v => (
-                  <tr key={v.id} style={{ borderBottom: '1px solid #2d374850' }}>
-                    <td style={{ padding: '8px 0', color: '#e2e8f0' }}>{v.published_at ? new Date(v.published_at).toLocaleDateString() : '—'}</td>
-                    <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{v.likes ?? '—'}</td>
-                    <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{v.comments ?? '—'}</td>
-                    <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{v.shares ?? '—'}</td>
-                    <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{v.impressions ?? '—'}</td>
+                  <tr key={v.id} style={{ borderBottom: `1px solid ${colors.border}80` }}>
+                    <td style={{ padding: '8px 0', color: colors.text }}>{v.published_at ? new Date(v.published_at).toLocaleDateString() : '—'}</td>
+                    <td style={{ padding: '8px 0', textAlign: 'right', color: colors.textMuted }}>{v.likes ?? '—'}</td>
+                    <td style={{ padding: '8px 0', textAlign: 'right', color: colors.textMuted }}>{v.comments ?? '—'}</td>
+                    <td style={{ padding: '8px 0', textAlign: 'right', color: colors.textMuted }}>{v.shares ?? '—'}</td>
+                    <td style={{ padding: '8px 0', textAlign: 'right', color: colors.textMuted }}>{v.impressions ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           )}
-          {selectedAccount && acctVariants.length === 0 && <p style={{ color: '#64748b', fontSize: 14 }}>No published posts in this range for this account.</p>}
+          {selectedAccount && acctVariants.length === 0 && <p style={{ color: colors.textMuted, fontSize: 14 }}>No published posts in this range for this account.</p>}
         </div>
       )}
 
       {campaigns.length > 0 && (
         <div style={card}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Campaign Attribution</h2>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: colors.text }}>Campaign Attribution</h2>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
-              <tr style={{ color: '#64748b', borderBottom: '1px solid #2d3748' }}>
+              <tr style={{ color: colors.textMuted, borderBottom: `1px solid ${colors.border}` }}>
                 <th style={{ textAlign: 'left', padding: '6px 0' }}>Campaign</th>
                 <th style={{ textAlign: 'right', padding: '6px 0' }}>Posts</th>
                 <th style={{ textAlign: 'right', padding: '6px 0' }}>Impressions</th>
@@ -162,12 +164,12 @@ export default function Analytics() {
             </thead>
             <tbody>
               {campaigns.slice(0, 12).map(c => (
-                <tr key={c.campaign} style={{ borderBottom: '1px solid #2d374850' }}>
-                  <td style={{ padding: '8px 0', color: '#e2e8f0' }}>{c.campaign}</td>
-                  <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{c.published_variants}</td>
-                  <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{c.engagement.impressions.toLocaleString()}</td>
-                  <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{c.engagement.reach.toLocaleString()}</td>
-                  <td style={{ padding: '8px 0', textAlign: 'right', color: '#94a3b8' }}>{c.engagement.clicks.toLocaleString()}</td>
+                <tr key={c.campaign} style={{ borderBottom: `1px solid ${colors.border}80` }}>
+                  <td style={{ padding: '8px 0', color: colors.text }}>{c.campaign}</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: colors.textMuted }}>{c.published_variants}</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: colors.textMuted }}>{c.engagement.impressions.toLocaleString()}</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: colors.textMuted }}>{c.engagement.reach.toLocaleString()}</td>
+                  <td style={{ padding: '8px 0', textAlign: 'right', color: colors.textMuted }}>{c.engagement.clicks.toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
@@ -177,7 +179,7 @@ export default function Analytics() {
 
       {overview?.total_published === 0 && (
         <div style={card}>
-          <p style={{ color: '#64748b', fontSize: 14 }}>No published posts yet. <a href="/compose" style={{ color: '#f97316' }}>Create and publish your first post →</a></p>
+          <p style={{ color: colors.textMuted, fontSize: 14 }}>No published posts yet. <a href="/compose" style={{ color: '#f97316' }}>Create and publish your first post →</a></p>
         </div>
       )}
     </div>

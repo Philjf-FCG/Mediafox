@@ -1,16 +1,17 @@
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
+import type { AppTheme } from '../theme';
 
 interface Asset { id: string; filename: string; mime_type: string; file_size: number; width: number | null; height: number | null; tags: string[]; created_at: string; url: string; }
 interface GoogleAlbum { id: string; title: string; mediaItemsCount?: string; }
 interface GoogleMediaItem { id: string; filename: string; mimeType?: string; baseUrl: string; }
 
-const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24, marginBottom: 20 };
-const input: React.CSSProperties = { background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 8, padding: '10px 14px', fontSize: 14 };
-
 const fmt = (bytes: number) => bytes > 1_000_000 ? `${(bytes / 1_000_000).toFixed(1)} MB` : `${Math.round(bytes / 1000)} KB`;
 
-export default function Library() {
+export default function Library({ colors }: { colors: AppTheme }) {
+  const card: React.CSSProperties = { background: colors.surface2, borderRadius: 12, padding: 24, marginBottom: 20 };
+  const input: React.CSSProperties = { background: colors.inputBg, border: `1px solid ${colors.border}`, color: colors.text, borderRadius: 8, padding: '10px 14px', fontSize: 14 };
+
   const [assets, setAssets] = useState<Asset[]>([]);
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<Asset | null>(null);
@@ -142,7 +143,7 @@ export default function Library() {
   return (
     <div style={{ maxWidth: 900 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>Media Library</h1>
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: colors.text }}>Media Library</h1>
         <div style={{ display: 'flex', gap: 10 }}>
           <input style={{ ...input, width: 200 }} placeholder="Search…" value={q} onChange={e => { setQ(e.target.value); load(e.target.value || undefined); }} />
           <button style={{ background: '#1d4ed8', border: 'none', color: '#fff', padding: '10px 14px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => setShowGoogleImport(v => !v)}>
@@ -157,12 +158,12 @@ export default function Library() {
 
       {showGoogleImport && (
         <div style={card}>
-          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10 }}>Import from Google Photos</h2>
-          <p style={{ color: '#94a3b8', fontSize: 12, marginBottom: 10 }}>Paste a Google access token with Photos Library scope for this import session.</p>
+          <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 10, color: colors.text }}>Import from Google Photos</h2>
+          <p style={{ color: colors.textMuted, fontSize: 12, marginBottom: 10 }}>Paste a Google access token with Photos Library scope for this import session.</p>
           <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
             <input style={{ ...input, flex: 1 }} placeholder="Google access token" value={googleToken} onChange={e => setGoogleToken(e.target.value)} />
-            <button style={{ background: '#334155', border: 'none', color: '#fff', padding: '10px 14px', borderRadius: 8, cursor: 'pointer' }} onClick={() => { void loadGoogleAlbums(); }} disabled={loadingGoogle}>Load Albums</button>
-            <button style={{ background: '#334155', border: 'none', color: '#fff', padding: '10px 14px', borderRadius: 8, cursor: 'pointer' }} onClick={() => { void loadGoogleItems(); }} disabled={loadingGoogle}>Load Items</button>
+            <button style={{ background: colors.surface, border: `1px solid ${colors.border}`, color: colors.text, padding: '10px 14px', borderRadius: 8, cursor: 'pointer' }} onClick={() => { void loadGoogleAlbums(); }} disabled={loadingGoogle}>Load Albums</button>
+            <button style={{ background: colors.surface, border: `1px solid ${colors.border}`, color: colors.text, padding: '10px 14px', borderRadius: 8, cursor: 'pointer' }} onClick={() => { void loadGoogleItems(); }} disabled={loadingGoogle}>Load Items</button>
           </div>
           {googleAlbums.length > 0 && (
             <select style={{ ...input, width: '100%', marginBottom: 10 }} value={googleAlbumId} onChange={e => setGoogleAlbumId(e.target.value)}>
@@ -173,7 +174,7 @@ export default function Library() {
             <div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8, marginBottom: 10 }}>
                 {googleItems.map(i => (
-                  <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0f1117', border: '1px solid #2d3748', borderRadius: 8, padding: 8 }}>
+                  <label key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, background: colors.inputBg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8, color: colors.text }}>
                     <input
                       type="checkbox"
                       checked={googleSelected.has(i.id)}
@@ -185,7 +186,7 @@ export default function Library() {
                         });
                       }}
                     />
-                    <span style={{ fontSize: 12, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.filename}</span>
+                    <span style={{ fontSize: 12, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i.filename}</span>
                   </label>
                 ))}
               </div>
@@ -200,28 +201,28 @@ export default function Library() {
       {msg && <p style={{ color: msg.includes('✓') ? '#22c55e' : '#ef4444', marginBottom: 16, fontSize: 14 }}>{msg}</p>}
 
       {filtered.length === 0 ? (
-        <div style={{ ...card, textAlign: 'center', color: '#64748b', padding: 48 }}>
+        <div style={{ ...card, textAlign: 'center', color: colors.textMuted, padding: 48 }}>
           <p style={{ fontSize: 14, marginBottom: 12 }}>No media files yet.</p>
           <button style={{ background: '#f97316', border: 'none', color: '#fff', padding: '10px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => fileRef.current?.click()}>Upload your first file</button>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
           {filtered.map(a => (
-            <div key={a.id} style={{ background: '#1e2333', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', border: selected?.id === a.id ? '2px solid #f97316' : '2px solid transparent' }}
+            <div key={a.id} style={{ background: colors.surface2, borderRadius: 10, overflow: 'hidden', cursor: 'pointer', border: selected?.id === a.id ? '2px solid #f97316' : `2px solid transparent` }}
               onClick={() => setSelected(a)}>
               {a.mime_type.startsWith('image/') ? (
                 <img src={`/api${a.url}`} alt={a.filename} style={{ width: '100%', height: 120, objectFit: 'cover', display: 'block' }} />
               ) : (
-                <div style={{ width: '100%', height: 120, background: '#0f1117', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 28 }}>
+                <div style={{ width: '100%', height: 120, background: colors.inputBg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: colors.textMuted, fontSize: 28 }}>
                   {a.mime_type.startsWith('video/') ? '▶' : '📄'}
                 </div>
               )}
               <div style={{ padding: '8px 10px' }}>
-                <div style={{ fontSize: 12, color: '#e2e8f0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.filename}</div>
-                <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{fmt(a.file_size)}{a.width ? ` · ${a.width}×${a.height}` : ''}</div>
+                <div style={{ fontSize: 12, color: colors.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{a.filename}</div>
+                <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{fmt(a.file_size)}{a.width ? ` · ${a.width}×${a.height}` : ''}</div>
                 {a.tags.length > 0 && (
                   <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                    {a.tags.slice(0, 3).map(t => <span key={t} style={{ fontSize: 10, background: '#2d3748', color: '#94a3b8', borderRadius: 3, padding: '1px 5px' }}>{t}</span>)}
+                    {a.tags.slice(0, 3).map(t => <span key={t} style={{ fontSize: 10, background: colors.border, color: colors.textMuted, borderRadius: 3, padding: '1px 5px' }}>{t}</span>)}
                   </div>
                 )}
               </div>
@@ -234,20 +235,20 @@ export default function Library() {
       {selected && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}
           onClick={() => setSelected(null)}>
-          <div style={{ background: '#1e2333', borderRadius: 16, padding: 28, maxWidth: 540, width: '90%', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: colors.surface2, borderRadius: 16, padding: 28, maxWidth: 540, width: '90%', maxHeight: '90vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
             {selected.mime_type.startsWith('image/') && (
               <img src={`/api${selected.url}`} alt={selected.filename} style={{ width: '100%', borderRadius: 8, marginBottom: 16, maxHeight: 300, objectFit: 'contain' }} />
             )}
-            <h3 style={{ fontWeight: 700, marginBottom: 8 }}>{selected.filename}</h3>
-            <div style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+            <h3 style={{ fontWeight: 700, marginBottom: 8, color: colors.text }}>{selected.filename}</h3>
+            <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 12 }}>
               {fmt(selected.file_size)}{selected.width ? ` · ${selected.width}×${selected.height}px` : ''} · {new Date(selected.created_at).toLocaleDateString()}
             </div>
 
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 6, fontWeight: 600 }}>TAGS</div>
+              <div style={{ fontSize: 12, color: colors.textMuted, marginBottom: 6, fontWeight: 600 }}>TAGS</div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
                 {selected.tags.map(t => (
-                  <span key={t} style={{ fontSize: 12, background: '#2d3748', color: '#e2e8f0', borderRadius: 4, padding: '2px 8px', cursor: 'pointer' }}
+                  <span key={t} style={{ fontSize: 12, background: colors.surface, color: colors.text, borderRadius: 4, padding: '2px 8px', cursor: 'pointer' }}
                     onClick={() => {
                       const newTags = selected.tags.filter(x => x !== t);
                       api.put(`/media/${selected.id}/tags`, { tags: newTags }).then(() => { setSelected(s => s ? { ...s, tags: newTags } : s); load(); }).catch(() => {});
@@ -263,7 +264,7 @@ export default function Library() {
                     const newTags = [...new Set([...selected.tags, tagInput.trim()])];
                     api.put(`/media/${selected.id}/tags`, { tags: newTags }).then(() => { setSelected(s => s ? { ...s, tags: newTags } : s); setTagInput(''); load(); }).catch(() => {});
                   }} />
-                <button style={{ background: '#2d3748', border: 'none', color: '#e2e8f0', padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
+                <button style={{ background: colors.surface, border: `1px solid ${colors.border}`, color: colors.text, padding: '6px 14px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }}
                   onClick={() => {
                     if (!tagInput.trim()) return;
                     const newTags = [...new Set([...selected.tags, tagInput.trim()])];
@@ -274,13 +275,13 @@ export default function Library() {
 
             <div style={{ display: 'flex', gap: 8, justifyContent: 'space-between' }}>
               <button style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }} onClick={() => deleteAsset(selected.id)}>Delete</button>
-              <a href={`/api${selected.url}`} download={selected.filename} style={{ background: '#2d3748', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontSize: 13 }}>Download</a>
-              <button style={{ background: '#2d3748', border: 'none', color: '#e2e8f0', padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }} onClick={() => setSelected(null)}>Close</button>
+              <a href={`/api${selected.url}`} download={selected.filename} style={{ background: colors.surface, color: colors.text, padding: '8px 16px', borderRadius: 8, textDecoration: 'none', fontSize: 13 }}>Download</a>
+              <button style={{ background: colors.surface, border: 'none', color: colors.text, padding: '8px 16px', borderRadius: 8, cursor: 'pointer', fontSize: 13 }} onClick={() => setSelected(null)}>Close</button>
             </div>
 
             {selected.mime_type.startsWith('video/') && (
-              <div style={{ marginTop: 16, borderTop: '1px solid #2d3748', paddingTop: 14 }}>
-                <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Publish to YouTube</h4>
+              <div style={{ marginTop: 16, borderTop: `1px solid ${colors.border}`, paddingTop: 14 }}>
+                <h4 style={{ fontSize: 14, fontWeight: 700, marginBottom: 10, color: colors.text }}>Publish to YouTube</h4>
                 <input style={{ ...input, width: '100%', marginBottom: 8 }} placeholder="YouTube access token" value={youtubeToken} onChange={e => setYoutubeToken(e.target.value)} />
                 <input style={{ ...input, width: '100%', marginBottom: 8 }} placeholder="Video title" value={youtubeTitle} onChange={e => setYoutubeTitle(e.target.value)} />
                 <input style={{ ...input, width: '100%', marginBottom: 8 }} placeholder="Description (optional)" value={youtubeDescription} onChange={e => setYoutubeDescription(e.target.value)} />
@@ -290,7 +291,7 @@ export default function Library() {
                     <option value="unlisted">Unlisted</option>
                     <option value="public">Public</option>
                   </select>
-                  <label style={{ color: '#94a3b8', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <label style={{ color: colors.textMuted, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
                     <input type="checkbox" checked={youtubeShort} onChange={e => setYoutubeShort(e.target.checked)} /> Mark as Shorts intent
                   </label>
                 </div>

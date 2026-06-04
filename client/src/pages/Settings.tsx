@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api, setStudioId, getStudioId } from '../api';
+import type { AppTheme } from '../theme';
 
-const card: React.CSSProperties = { background: '#1e2333', borderRadius: 12, padding: 24, marginBottom: 20 };
-const input: React.CSSProperties = { background: '#0f1117', border: '1px solid #2d3748', color: '#e2e8f0', borderRadius: 8, padding: '10px 14px', width: '100%', fontSize: 14 };
+export default function Settings({ colors }: { colors: AppTheme }) {
+  const card: React.CSSProperties = { background: colors.surface2, borderRadius: 12, padding: 24, marginBottom: 20 };
+  const input: React.CSSProperties = { background: colors.inputBg, border: `1px solid ${colors.border}`, color: colors.text, borderRadius: 8, padding: '10px 14px', width: '100%', fontSize: 14 };
 
-export default function Settings() {
   const [studioId, setStudio] = useState(getStudioId());
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -99,11 +100,11 @@ export default function Settings() {
 
   return (
     <div style={{ maxWidth: 500 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>Settings</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24, color: colors.text }}>Settings</h1>
 
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Studio</h2>
-        <p style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, color: colors.text }}>Studio</h2>
+        <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: 12 }}>
           The Studio ID ties MediaFox to your Fox Suite studio. This is set automatically if you arrive from BudgetFox/FoxAuth.
         </p>
         <input style={input} placeholder="Studio ID" value={studioId} onChange={e => setStudio(e.target.value)} />
@@ -114,30 +115,30 @@ export default function Settings() {
       </div>
 
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>About</h2>
-        <p style={{ fontSize: 13, color: '#64748b' }}>MediaFox v0.1.0 — Social media management for the Fox Suite</p>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: colors.text }}>About</h2>
+        <p style={{ fontSize: 13, color: colors.textMuted }}>MediaFox v0.1.0 — Social media management for the Fox Suite</p>
       </div>
 
       <div style={card}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Integration OAuth</h2>
-        <p style={{ fontSize: 13, color: '#64748b', marginBottom: 12 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 700, marginBottom: 4, color: colors.text }}>Integration OAuth</h2>
+        <p style={{ fontSize: 13, color: colors.textMuted, marginBottom: 12 }}>
           Configure LinkedIn and Meta credentials at runtime per studio. Changes apply immediately without server restart.
         </p>
 
-        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>LinkedIn</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: colors.text }}>LinkedIn</h3>
         <input style={input} placeholder="LinkedIn Client ID" value={linkedinClientId} onChange={e => setLinkedinClientId(e.target.value)} />
         <input style={{ ...input, marginTop: 8 }} type="password" placeholder={hasLinkedInSecret ? 'LinkedIn Client Secret (leave blank to keep current)' : 'LinkedIn Client Secret'} value={linkedinClientSecret} onChange={e => setLinkedinClientSecret(e.target.value)} />
         <input style={{ ...input, marginTop: 8 }} placeholder="LinkedIn Redirect URI" value={linkedinRedirectUri} onChange={e => setLinkedinRedirectUri(e.target.value)} />
         <input style={{ ...input, marginTop: 8, marginBottom: 14 }} placeholder="LinkedIn Scopes (comma-separated)" value={linkedinScopes} onChange={e => setLinkedinScopes(e.target.value)} />
 
-        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Facebook / Instagram (Meta)</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8, color: colors.text }}>Facebook / Instagram (Meta)</h3>
         <input style={input} placeholder="Meta App ID" value={metaAppId} onChange={e => setMetaAppId(e.target.value)} />
         <input style={{ ...input, marginTop: 8 }} type="password" placeholder={hasMetaSecret ? 'Meta App Secret (leave blank to keep current)' : 'Meta App Secret'} value={metaAppSecret} onChange={e => setMetaAppSecret(e.target.value)} />
         <input style={{ ...input, marginTop: 8 }} placeholder="Meta Redirect URI" value={metaRedirectUri} onChange={e => setMetaRedirectUri(e.target.value)} />
         <input style={{ ...input, marginTop: 8 }} placeholder="Meta Scopes (comma-separated)" value={metaScopes} onChange={e => setMetaScopes(e.target.value)} />
 
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          <button style={{ background: '#334155', border: 'none', color: '#fff', padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => { void loadIntegrationSettings(); }}>
+          <button style={{ background: colors.surface, border: `1px solid ${colors.border}`, color: colors.text, padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => { void loadIntegrationSettings(); }}>
             {loadingIntegration ? 'Loading...' : 'Reload'}
           </button>
           <button style={{ background: '#f97316', border: 'none', color: '#fff', padding: '9px 20px', borderRadius: 8, cursor: 'pointer', fontWeight: 600 }} onClick={() => { void saveIntegrationSettings(); }}>
