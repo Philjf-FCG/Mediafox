@@ -6,6 +6,7 @@ import path from 'path';
 import fs from 'fs';
 import { requireAuth, requireCsrfProtection } from './utils/auth';
 import { attachStudio, attachStudioOptional } from './middleware/studio';
+import { requestLogger } from './utils/logger';
 import authRoutes from './routes/auth';
 import accountRoutes from './routes/accounts';
 import postRoutes from './routes/posts';
@@ -64,6 +65,7 @@ export const createApp = (): express.Application => {
 
   app.use(express.json({ limit: '10mb' }));
   app.use(cookieParser());
+  app.use(requestLogger);
   app.use('/api', requireCsrfProtection);
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'mediafox' }));

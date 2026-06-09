@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { createApp } from './app';
 import { getDb } from './utils/db';
 import { startWorker } from './scheduler/worker';
+import { logger } from './utils/logger';
 
 const PORT = Number(process.env.PORT ?? 5004);
 
@@ -14,7 +15,7 @@ getDb();
 startWorker();
 
 const server = app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[mediafox] listening on port ${PORT} (${process.env.NODE_ENV ?? 'development'})`);
+  logger.info('MediaFox started', { port: PORT, nodeEnv: process.env.NODE_ENV ?? 'development' });
 });
 
 const shutdown = () => {
