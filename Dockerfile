@@ -38,4 +38,8 @@ ENV DATABASE_PATH=/opt/data/mediafox.db
 ENV MEDIA_STORAGE_PATH=/opt/data/media
 
 EXPOSE 5004
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
+    CMD node -e "require('http').get('http://127.0.0.1:5004/api/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
+
 CMD ["node", "dist/server.js"]

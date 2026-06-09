@@ -13,6 +13,13 @@ getDb();
 // Start scheduler
 startWorker();
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`[mediafox] listening on port ${PORT} (${process.env.NODE_ENV ?? 'development'})`);
 });
+
+const shutdown = () => {
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 9000).unref();
+};
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
