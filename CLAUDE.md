@@ -52,18 +52,34 @@ bd close <id>         # Complete work
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+npm install
+npm test
+npm run build   # compiles TypeScript → dist/
+npm run dev     # port 5004
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+MediaFox is a **social media management** platform. Node.js/Express service.
+
+- Port: 5004 | Health: `GET /api/health` | Cloud Run name: `fox-mediafox`
+- Auth: FoxAuth JWT (verifies `FOXAUTH_JWT_SECRET` locally)
+- Platform adapters in `dist/adapters/`: Slack, Discord, Facebook, Instagram, LinkedIn, YouTube, Bluesky
+- Scheduled jobs in `dist/scheduler/`: analytics sync, inbox polling, token refresh, archive retention
+- Media files stored at `MEDIA_STORAGE_PATH`
+
+**Critical secrets:**
+- `FOXAUTH_JWT_SECRET` — shared JWT verification
+- `MEDIAFOX_TOKEN_ENCRYPTION_KEY` — encrypts stored platform OAuth tokens (at-rest encryption for social media API keys)
+
+The `dist/` directory IS committed (no TypeScript toolchain needed at deploy time).
+Edit source in `src/`, then `npm run build` before committing.
+
+See `../CLAUDE.md` (root) for GCP project details.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- Platform adapters follow a common interface — see existing adapter for pattern
+- Never store raw OAuth tokens in the DB without encrypting via `TOKEN_ENCRYPTION_KEY`
+- Structured JSON logging — see `../fox-suite/monitoring/LOGGING_GUIDE.md`
