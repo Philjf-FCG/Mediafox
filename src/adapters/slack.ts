@@ -28,7 +28,7 @@ export const publishToSlack = async (
   blocks?: unknown[],
   scheduledAt?: Date,
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'slack');
+  const rl = await checkRateLimit(account.id, 'slack');
   if (!rl.allowed) throw new Error(`Slack rate limit reached. Resets at ${rl.resetsAt}`);
 
   const token = getToken(account);
@@ -46,7 +46,7 @@ export const publishToSlack = async (
   );
 
   if (!res.data.ok) throw new Error(`Slack API error: ${res.data.error}`);
-  consumeRateLimit(account.id, 'slack');
+  await consumeRateLimit(account.id, 'slack');
 
   return { platformPostId: res.data.ts ?? res.data.scheduled_message_id ?? 'unknown' };
 };
@@ -65,7 +65,7 @@ export const replyToSlackMessage = async (
     { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 },
   );
   if (!res.data.ok) throw new Error(`Slack reply error: ${res.data.error}`);
-  consumeRateLimit(account.id, 'slack');
+  await consumeRateLimit(account.id, 'slack');
 };
 
 export const fetchSlackChannels = async (botToken: string): Promise<{ id: string; name: string }[]> => {

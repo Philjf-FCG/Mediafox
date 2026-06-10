@@ -19,7 +19,7 @@ export const purgeArchivedContent = async (): Promise<void> => {
   const retentionDays = getRetentionDays();
   const cutoff = daysAgoIso(retentionDays);
 
-  const result = purgeArchivedContentOlderThan(cutoff);
+  const result = await purgeArchivedContentOlderThan(cutoff);
 
   // DB rows are removed first. Best-effort file cleanup follows.
   for (const storagePath of result.mediaStoragePaths) {

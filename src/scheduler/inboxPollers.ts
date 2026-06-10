@@ -1,21 +1,34 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb, updateAccountStatus } from '../utils/db';
+import { getPool, updateAccountStatus } from '../utils/db';
 import { decryptToken } from '../utils/crypto';
 
 interface AccountRow { id: string; studio_id: string; platform: string; platform_id: string; access_token: string; refresh_token: string | null; extra: string; display_name: string; }
 
-const upsertInboxItem = (item: {
+const upsertInboxItem = async (item: {
   id: string; studio_id: string; account_id: string; platform: string;
   platform_item_id: string; type: string; author_name: string | null;
   author_id: string | null; body: string | null;
-}): void => {
-  getDb().prepare(`
-    INSERT OR IGNORE INTO inbox_items
-      (id, studio_id, account_id, platform, platform_item_id, type, author_name, author_id, body, status, received_at, created_at, updated_at)
+}): Promise<void> => {
+  await getPool().query(`
+    INSERT INTO inbox_items
+      (id, studio_id, account_id, platform, platform_item_id, type, author_name, author_platform_id, body, status, received_at)
     VALUES
-      (@id, @studio_id, @account_id, @platform, @platform_item_id, @type, @author_name, @author_id, @body, 'unread', datetime('now'), datetime('now'), datetime('now'))
-  `).run(item);
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'unread', NOW())
+    ON CONFLICT(account_id, platform_item_id) DO NOTHING
+  `, [item.id, item.studio_id, item.account_id, item.platform, item.platform_item_id, item.type,
+      item.author_name, item.author_id, item.body]);
+};
+
+/** Update a JSON extra field by key in the accounts table */
+const updateAccountExtraKey = async (accountId: string, key: string, value: string | number): Promise<void> => {
+  // Fetch current extra, merge in application code, write back
+  const { rows } = await getPool().query('SELECT extra FROM accounts WHERE id=$1', [accountId]);
+  const current = rows[0] as { extra: string } | undefined;
+  let parsed: Record<string, unknown> = {};
+  try { parsed = JSON.parse(current?.extra ?? '{}') as Record<string, unknown>; } catch { /* use empty */ }
+  parsed[key] = value;
+  await getPool().query('UPDATE accounts SET extra=$1 WHERE id=$2', [JSON.stringify(parsed), accountId]);
 };
 
 // ─── Bluesky ──────────────────────────────────────────────────────────────────
@@ -37,7 +50,7 @@ const pollBluesky = async (account: AccountRow): Promise<void> => {
 
   for (const notif of notifications) {
     const record = notif.record as { text?: string } | undefined;
-    upsertInboxItem({
+    await upsertInboxItem({
       id: uuidv4(),
       studio_id: account.studio_id,
       account_id: account.id,
@@ -51,7 +64,7 @@ const pollBluesky = async (account: AccountRow): Promise<void> => {
   }
 
   if (res.data.cursor) {
-    getDb().prepare("UPDATE accounts SET extra=json_set(extra, '$.cursor', ?) WHERE id=?").run(res.data.cursor, account.id);
+    await updateAccountExtraKey(account.id, 'cursor', res.data.cursor);
   }
 };
 
@@ -68,7 +81,7 @@ const pollFacebook = async (account: AccountRow): Promise<void> => {
   );
 
   for (const conv of res.data.data ?? []) {
-    upsertInboxItem({
+    await upsertInboxItem({
       id: uuidv4(),
       studio_id: account.studio_id,
       account_id: account.id,
@@ -81,7 +94,7 @@ const pollFacebook = async (account: AccountRow): Promise<void> => {
     });
   }
 
-  getDb().prepare("UPDATE accounts SET extra=json_set(extra, '$.since', ?) WHERE id=?").run(Math.floor(Date.now() / 1000), account.id);
+  await updateAccountExtraKey(account.id, 'since', Math.floor(Date.now() / 1000));
 };
 
 // ─── LinkedIn ─────────────────────────────────────────────────────────────────
@@ -103,7 +116,7 @@ const pollLinkedIn = async (account: AccountRow): Promise<void> => {
   ).catch(() => ({ data: { elements: [] } }));
 
   for (const el of res.data.elements ?? []) {
-    upsertInboxItem({
+    await upsertInboxItem({
       id: uuidv4(),
       studio_id: account.studio_id,
       account_id: account.id,
@@ -116,7 +129,7 @@ const pollLinkedIn = async (account: AccountRow): Promise<void> => {
     });
   }
 
-  getDb().prepare("UPDATE accounts SET extra=json_set(extra, '$.since', ?) WHERE id=?").run(Date.now(), account.id);
+  await updateAccountExtraKey(account.id, 'since', Date.now());
 };
 
 // ─── Discord (bot) ────────────────────────────────────────────────────────────
@@ -138,7 +151,7 @@ const pollDiscord = async (account: AccountRow): Promise<void> => {
 
   let lastId = extra.last_message_id;
   for (const msg of res.data ?? []) {
-    upsertInboxItem({
+    await upsertInboxItem({
       id: uuidv4(),
       studio_id: account.studio_id,
       account_id: account.id,
@@ -153,7 +166,7 @@ const pollDiscord = async (account: AccountRow): Promise<void> => {
   }
 
   if (lastId && lastId !== extra.last_message_id) {
-    getDb().prepare("UPDATE accounts SET extra=json_set(extra, '$.last_message_id', ?) WHERE id=?").run(lastId, account.id);
+    await updateAccountExtraKey(account.id, 'last_message_id', lastId);
   }
 };
 
@@ -176,7 +189,7 @@ const pollSlack = async (account: AccountRow): Promise<void> => {
 
   let newest = extra.oldest;
   for (const msg of res.data.messages ?? []) {
-    upsertInboxItem({
+    await upsertInboxItem({
       id: uuidv4(),
       studio_id: account.studio_id,
       account_id: account.id,
@@ -191,18 +204,18 @@ const pollSlack = async (account: AccountRow): Promise<void> => {
   }
 
   if (newest && newest !== extra.oldest) {
-    getDb().prepare("UPDATE accounts SET extra=json_set(extra, '$.oldest', ?) WHERE id=?").run(newest, account.id);
+    await updateAccountExtraKey(account.id, 'oldest', newest);
   }
 };
 
 // ─── Main poller ──────────────────────────────────────────────────────────────
 
 export const pollAllInboxes = async (): Promise<void> => {
-  const accounts = getDb()
-    .prepare(`SELECT * FROM accounts WHERE status='active' AND platform IN ('bluesky','facebook','linkedin','discord','slack')`)
-    .all() as AccountRow[];
+  const { rows: accounts } = await getPool().query(
+    `SELECT * FROM accounts WHERE status='active' AND platform IN ('bluesky','facebook','linkedin','discord','slack')`,
+  );
 
-  for (const account of accounts) {
+  for (const account of accounts as AccountRow[]) {
     try {
       switch (account.platform) {
         case 'bluesky':    await pollBluesky(account); break;
@@ -215,7 +228,7 @@ export const pollAllInboxes = async (): Promise<void> => {
       console.error(`[inbox] poll failed for ${account.platform} account ${account.id}:`, err);
       // Mark expired if auth error
       if (axios.isAxiosError(err) && err.response?.status === 401) {
-        updateAccountStatus(account.id, 'expired');
+        await updateAccountStatus(account.id, 'expired');
       }
     }
   }

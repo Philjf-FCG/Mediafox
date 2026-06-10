@@ -16,7 +16,7 @@ const igId = (account: AccountRecord): string => account.platform_id;
 
 const handleMeta = (err: unknown, accountId: string): never => {
   const e = err as { response?: { data?: { error?: { code?: number } } } };
-  if (e.response?.data?.error?.code === 190) updateAccountStatus(accountId, 'expired');
+  if (e.response?.data?.error?.code === 190) void updateAccountStatus(accountId, 'expired');
   throw err;
 };
 
@@ -39,7 +39,7 @@ export const publishImageToInstagram = async (
   imageUrl: string,
   caption: string,
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'instagram');
+  const rl = await checkRateLimit(account.id, 'instagram');
   if (!rl.allowed) throw new Error(`Instagram rate limit reached. Resets at ${rl.resetsAt}`);
 
   const at = token(account);
@@ -51,7 +51,7 @@ export const publishImageToInstagram = async (
       caption,
       access_token: at,
     }, { timeout: 30000 });
-    consumeRateLimit(account.id, 'instagram');
+    await consumeRateLimit(account.id, 'instagram');
 
     await pollUntilReady(id, container.data.id, at);
 
@@ -59,9 +59,9 @@ export const publishImageToInstagram = async (
       creation_id: container.data.id,
       access_token: at,
     }, { timeout: 15000 });
-    consumeRateLimit(account.id, 'instagram');
+    await consumeRateLimit(account.id, 'instagram');
 
-    updateAccountStatus(account.id, 'active');
+    await updateAccountStatus(account.id, 'active');
     return { platformPostId: publish.data.id };
   } catch (err) {
     return handleMeta(err, account.id);
@@ -73,7 +73,7 @@ export const publishCarouselToInstagram = async (
   imageUrls: string[],
   caption: string,
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'instagram');
+  const rl = await checkRateLimit(account.id, 'instagram');
   if (!rl.allowed) throw new Error('Instagram rate limit reached');
 
   const at = token(account);
@@ -87,7 +87,7 @@ export const publishCarouselToInstagram = async (
         is_carousel_item: true,
         access_token: at,
       }, { timeout: 30000 });
-      consumeRateLimit(account.id, 'instagram');
+      await consumeRateLimit(account.id, 'instagram');
       childIds.push(c.data.id);
     }
 
@@ -97,7 +97,7 @@ export const publishCarouselToInstagram = async (
       caption,
       access_token: at,
     }, { timeout: 30000 });
-    consumeRateLimit(account.id, 'instagram');
+    await consumeRateLimit(account.id, 'instagram');
 
     await pollUntilReady(id, carousel.data.id, at);
 
@@ -105,7 +105,7 @@ export const publishCarouselToInstagram = async (
       creation_id: carousel.data.id,
       access_token: at,
     }, { timeout: 15000 });
-    consumeRateLimit(account.id, 'instagram');
+    await consumeRateLimit(account.id, 'instagram');
 
     return { platformPostId: publish.data.id };
   } catch (err) {

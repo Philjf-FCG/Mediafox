@@ -17,7 +17,7 @@ const pageId = (account: AccountRecord): string => {
 
 const handleMeta = (err: unknown, accountId: string): never => {
   const e = err as { response?: { data?: { error?: { code?: number } } } };
-  if (e.response?.data?.error?.code === 190) updateAccountStatus(accountId, 'expired');
+  if (e.response?.data?.error?.code === 190) void updateAccountStatus(accountId, 'expired');
   throw err;
 };
 
@@ -27,7 +27,7 @@ export const publishToFacebook = async (
   link?: string,
   scheduledPublishTime?: number,
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'facebook');
+  const rl = await checkRateLimit(account.id, 'facebook');
   if (!rl.allowed) throw new Error(`Facebook rate limit reached. Resets at ${rl.resetsAt}`);
 
   const pid = pageId(account);
@@ -37,8 +37,8 @@ export const publishToFacebook = async (
 
   try {
     const res = await axios.post<{ id: string }>(`${BASE}/${pid}/feed`, params, { timeout: 20000 });
-    consumeRateLimit(account.id, 'facebook');
-    updateAccountStatus(account.id, 'active');
+    await consumeRateLimit(account.id, 'facebook');
+    await updateAccountStatus(account.id, 'active');
     return { platformPostId: res.data.id };
   } catch (err) {
     return handleMeta(err, account.id);
@@ -50,7 +50,7 @@ export const publishPhotoToFacebook = async (
   message: string,
   imageUrl: string,
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'facebook');
+  const rl = await checkRateLimit(account.id, 'facebook');
   if (!rl.allowed) throw new Error(`Facebook rate limit reached`);
 
   const pid = pageId(account);
@@ -60,7 +60,7 @@ export const publishPhotoToFacebook = async (
       url: imageUrl,
       access_token: token(account),
     }, { timeout: 30000 });
-    consumeRateLimit(account.id, 'facebook');
+    await consumeRateLimit(account.id, 'facebook');
     return { platformPostId: res.data.id };
   } catch (err) {
     return handleMeta(err, account.id);
@@ -72,7 +72,7 @@ export const getFacebookPageInsights = async (
   since: string,
   until: string,
 ): Promise<unknown> => {
-  const rl = checkRateLimit(account.id, 'facebook');
+  const rl = await checkRateLimit(account.id, 'facebook');
   if (!rl.allowed) throw new Error('Facebook rate limit reached');
 
   const pid = pageId(account);
@@ -87,7 +87,7 @@ export const getFacebookPageInsights = async (
       },
       timeout: 20000,
     });
-    consumeRateLimit(account.id, 'facebook');
+    await consumeRateLimit(account.id, 'facebook');
     return res.data;
   } catch (err) {
     return handleMeta(err, account.id);

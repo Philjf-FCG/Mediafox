@@ -27,7 +27,7 @@ export const publishToDiscordWebhook = async (
   content: string,
   embeds?: DiscordEmbed[],
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'discord');
+  const rl = await checkRateLimit(account.id, 'discord');
   if (!rl.allowed) throw new Error(`Discord rate limit reached. Resets at ${rl.resetsAt}`);
 
   const webhookUrl = getWebhookUrl(account);
@@ -41,7 +41,7 @@ export const publishToDiscordWebhook = async (
     timeout: 15000,
   });
 
-  consumeRateLimit(account.id, 'discord');
+  await consumeRateLimit(account.id, 'discord');
   return { platformPostId: res.data.id };
 };
 
@@ -51,7 +51,7 @@ export const publishToDiscordBot = async (
   content: string,
   embeds?: DiscordEmbed[],
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'discord');
+  const rl = await checkRateLimit(account.id, 'discord');
   if (!rl.allowed) throw new Error(`Discord rate limit reached. Resets at ${rl.resetsAt}`);
 
   const botToken = decryptToken(account.access_token);
@@ -66,7 +66,7 @@ export const publishToDiscordBot = async (
     { headers: { Authorization: `Bot ${botToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
   );
 
-  consumeRateLimit(account.id, 'discord');
+  await consumeRateLimit(account.id, 'discord');
   return { platformPostId: res.data.id };
 };
 
@@ -82,5 +82,5 @@ export const replyToDiscordMessage = async (
     { content: content.substring(0, 2000), message_reference: { message_id: messageId } },
     { headers: { Authorization: `Bot ${botToken}`, 'Content-Type': 'application/json' }, timeout: 15000 },
   );
-  consumeRateLimit(account.id, 'discord');
+  await consumeRateLimit(account.id, 'discord');
 };

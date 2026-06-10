@@ -1,16 +1,16 @@
 import axios from 'axios';
-import { getDb, updateAccountTokens, updateAccountStatus, getStudioIntegrationSettings } from '../utils/db';
+import { getPool, updateAccountTokens, updateAccountStatus, getStudioIntegrationSettings } from '../utils/db';
 import { decryptToken, encryptToken } from '../utils/crypto';
 
 interface AccountRow { id: string; studio_id: string; platform: string; access_token: string; refresh_token: string | null; token_expires_at: string | null; extra: string; }
 
-const getStudioOAuthConfig = (studioId: string): {
+const getStudioOAuthConfig = async (studioId: string): Promise<{
   linkedinClientId: string;
   linkedinClientSecret: string;
   metaAppId: string;
   metaAppSecret: string;
-} => {
-  const stored = getStudioIntegrationSettings(studioId);
+}> => {
+  const stored = await getStudioIntegrationSettings(studioId);
   return {
     linkedinClientId: (stored?.linkedin_client_id || process.env.LINKEDIN_CLIENT_ID || '').trim(),
     linkedinClientSecret: (stored?.linkedin_client_secret || process.env.LINKEDIN_CLIENT_SECRET || '').trim(),
@@ -21,7 +21,7 @@ const getStudioOAuthConfig = (studioId: string): {
 
 const refreshBluesky = async (account: AccountRow): Promise<void> => {
   if (!account.refresh_token) {
-    updateAccountStatus(account.id, 'expired');
+    await updateAccountStatus(account.id, 'expired');
     return;
   }
   const refreshJwt = decryptToken(account.refresh_token);
@@ -30,19 +30,19 @@ const refreshBluesky = async (account: AccountRow): Promise<void> => {
     null,
     { headers: { Authorization: `Bearer ${refreshJwt}` }, timeout: 10000 },
   );
-  updateAccountTokens(account.id, encryptToken(res.data.accessJwt), encryptToken(res.data.refreshJwt), null);
-  updateAccountStatus(account.id, 'active');
+  await updateAccountTokens(account.id, encryptToken(res.data.accessJwt), encryptToken(res.data.refreshJwt), null);
+  await updateAccountStatus(account.id, 'active');
 };
 
 const refreshLinkedIn = async (account: AccountRow): Promise<void> => {
   if (!account.refresh_token) {
-    updateAccountStatus(account.id, 'expired');
+    await updateAccountStatus(account.id, 'expired');
     return;
   }
 
-  const cfg = getStudioOAuthConfig(account.studio_id);
+  const cfg = await getStudioOAuthConfig(account.studio_id);
   if (!cfg.linkedinClientId || !cfg.linkedinClientSecret) {
-    updateAccountStatus(account.id, 'error');
+    await updateAccountStatus(account.id, 'error');
     return;
   }
 
@@ -59,32 +59,33 @@ const refreshLinkedIn = async (account: AccountRow): Promise<void> => {
       { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 10000 },
     );
     const expiresAt = new Date(Date.now() + res.data.expires_in * 1000).toISOString();
-    updateAccountTokens(
+    await updateAccountTokens(
       account.id,
       encryptToken(res.data.access_token),
       res.data.refresh_token ? encryptToken(res.data.refresh_token) : account.refresh_token,
       expiresAt,
     );
-    updateAccountStatus(account.id, 'active');
+    await updateAccountStatus(account.id, 'active');
   } catch {
-    updateAccountStatus(account.id, 'expired');
+    await updateAccountStatus(account.id, 'expired');
   }
 };
 
 export const refreshExpiringTokens = async (): Promise<void> => {
   // Refresh tokens expiring within the next 7 days
   const threshold = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-  const accounts = getDb()
-    .prepare(`SELECT * FROM accounts WHERE status='active' AND token_expires_at IS NOT NULL AND token_expires_at < ?`)
-    .all(threshold) as AccountRow[];
+  const { rows: accounts } = await getPool().query(
+    `SELECT * FROM accounts WHERE status='active' AND token_expires_at IS NOT NULL AND token_expires_at < $1`,
+    [threshold],
+  );
 
-  for (const account of accounts) {
+  for (const account of accounts as AccountRow[]) {
     try {
       if (account.platform === 'bluesky') await refreshBluesky(account);
       else if (account.platform === 'linkedin') await refreshLinkedIn(account);
       // Meta tokens can be exchanged for new long-lived tokens before expiry
       else if (account.platform === 'facebook' || account.platform === 'instagram') {
-        const cfg = getStudioOAuthConfig(account.studio_id);
+        const cfg = await getStudioOAuthConfig(account.studio_id);
         if (!cfg.metaAppId || !cfg.metaAppSecret) continue;
         const accessToken = decryptToken(account.access_token);
         const res = await axios.get<{ access_token: string; expires_in: number }>(
@@ -100,8 +101,8 @@ export const refreshExpiringTokens = async (): Promise<void> => {
           },
         );
         const expiresAt = new Date(Date.now() + res.data.expires_in * 1000).toISOString();
-        updateAccountTokens(account.id, encryptToken(res.data.access_token), null, expiresAt);
-        updateAccountStatus(account.id, 'active');
+        await updateAccountTokens(account.id, encryptToken(res.data.access_token), null, expiresAt);
+        await updateAccountStatus(account.id, 'active');
       }
     } catch (err) {
       console.error(`Token refresh failed for account ${account.id} (${account.platform}):`, err);

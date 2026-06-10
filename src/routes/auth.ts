@@ -11,6 +11,7 @@ import {
   parseFoxAuthToken,
 } from '../utils/auth';
 import { getUserByEmail, createUser, updateUser } from '../utils/db';
+import { asyncHandler } from '../utils/asyncHandler';
 
 dotenv.config();
 
@@ -47,20 +48,21 @@ const readJwtAudience = (token: string): string | null => {
   }
 };
 
-const ensureAdmins = (): void => {
+const ensureAdmins = async (): Promise<void> => {
   for (const email of ADMIN_EMAILS) {
     try {
-      const existing = getUserByEmail(email);
+      const existing = await getUserByEmail(email);
       if (!existing) {
-        createUser({ email, name: '', status: 'approved', role: 'admin' });
+        await createUser({ email, name: '', status: 'approved', role: 'admin' });
       } else if (existing.status !== 'approved' || existing.role !== 'admin') {
-        updateUser(existing.id, { status: 'approved', role: 'admin' });
+        await updateUser(existing.id, { status: 'approved', role: 'admin' });
       }
     } catch { /* ignore if db not ready */ }
   }
 };
 
-ensureAdmins();
+// Kick off admin seeding after server starts (non-blocking)
+setImmediate(() => { ensureAdmins().catch(() => {}); });
 
 // GET /api/auth/csrf — issue CSRF token
 router.get('/csrf', (req: Request, res: Response) => {
@@ -102,7 +104,7 @@ router.get('/me', (req: Request, res: Response) => {
 });
 
 // POST /api/auth/google — verify Google ID token, issue session
-router.post('/google', async (req: Request, res: Response) => {
+router.post('/google', asyncHandler(async (req: Request, res: Response) => {
   if (!isAuthEnabled()) {
     res.status(400).json({ error: 'Auth is disabled in this environment.' });
     return;
@@ -131,12 +133,12 @@ router.post('/google', async (req: Request, res: Response) => {
     const googleSub = payload.sub || '';
     const isAdmin = ADMIN_EMAILS.has(email);
 
-    let user = getUserByEmail(email);
+    let user = await getUserByEmail(email);
     if (!user) {
-      user = createUser({ email, name, google_sub: googleSub, status: isAdmin ? 'approved' : 'pending', role: isAdmin ? 'admin' : 'user' });
+      user = await createUser({ email, name, google_sub: googleSub, status: isAdmin ? 'approved' : 'pending', role: isAdmin ? 'admin' : 'user' });
     } else {
-      updateUser(user.id, { name: name || user.name, google_sub: (googleSub || user.google_sub) ?? undefined });
-      user = getUserByEmail(email)!;
+      await updateUser(user.id, { name: name || user.name, google_sub: (googleSub || user.google_sub) ?? undefined });
+      user = (await getUserByEmail(email))!;
     }
 
     if (user.status === 'pending') {
@@ -148,7 +150,7 @@ router.post('/google', async (req: Request, res: Response) => {
       return;
     }
 
-    updateUser(user.id, { last_login_at: new Date().toISOString() });
+    await updateUser(user.id, { last_login_at: new Date().toISOString() });
 
     const mfUser = {
       userId: user.id,
@@ -174,7 +176,7 @@ router.post('/google', async (req: Request, res: Response) => {
       : message;
     res.status(401).json({ error: 'Google sign-in failed.', detail });
   }
-});
+}));
 
 // GET /api/auth/config — public config for the login page
 router.get('/config', (_req: Request, res: Response) => {

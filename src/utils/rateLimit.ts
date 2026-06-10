@@ -1,4 +1,4 @@
-import { getDb } from './db';
+import { getPool } from './db';
 
 export type Platform = 'facebook' | 'instagram' | 'linkedin' | 'bluesky' | 'discord' | 'slack';
 
@@ -24,23 +24,23 @@ export interface RateLimitStatus {
   resetsAt: string;
 }
 
-export const checkRateLimit = (accountId: string, platform: Platform): RateLimitStatus => {
-  const db = getDb();
+export const checkRateLimit = async (accountId: string, platform: Platform): Promise<RateLimitStatus> => {
   const cfg = LIMITS[platform];
   const now = Date.now();
-  const windowStart = new Date(now - cfg.windowMs).toISOString();
+  const windowStartMs = now - cfg.windowMs;
 
-  const row = db.prepare(`
+  const { rows } = await getPool().query(`
     SELECT used, window_start FROM api_rate_limits
-    WHERE account_id = ? AND platform = ?
-  `).get(accountId, platform) as { used: number; window_start: string } | undefined;
+    WHERE account_id = $1 AND platform = $2
+  `, [accountId, platform]);
+  const row = rows[0] as { used: number; window_start: string } | undefined;
 
-  if (!row || new Date(row.window_start).getTime() < now - cfg.windowMs) {
-    db.prepare(`
+  if (!row || new Date(row.window_start).getTime() < windowStartMs) {
+    await getPool().query(`
       INSERT INTO api_rate_limits (account_id, platform, used, window_start)
-      VALUES (?, ?, 0, ?)
-      ON CONFLICT(account_id, platform) DO UPDATE SET used=0, window_start=excluded.window_start
-    `).run(accountId, platform, new Date(now).toISOString());
+      VALUES ($1, $2, 0, $3)
+      ON CONFLICT(account_id, platform) DO UPDATE SET used=0, window_start=EXCLUDED.window_start
+    `, [accountId, platform, new Date(now).toISOString()]);
     return { allowed: true, used: 0, limit: cfg.maxCalls, remaining: cfg.maxCalls, resetsAt: new Date(now + cfg.windowMs).toISOString() };
   }
 
@@ -52,32 +52,27 @@ export const checkRateLimit = (accountId: string, platform: Platform): RateLimit
     remaining: Math.max(0, cfg.maxCalls - row.used),
     resetsAt,
   };
-
-  void windowStart;
 };
 
-export const consumeRateLimit = (accountId: string, platform: Platform, count = 1): void => {
-  const db = getDb();
+export const consumeRateLimit = async (accountId: string, platform: Platform, count = 1): Promise<void> => {
   const now = Date.now();
   const cfg = LIMITS[platform];
+  const windowStartIso = new Date(now).toISOString();
+  const windowMs = cfg.windowMs;
 
-  db.prepare(`
+  await getPool().query(`
     INSERT INTO api_rate_limits (account_id, platform, used, window_start)
-    VALUES (?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4)
     ON CONFLICT(account_id, platform) DO UPDATE SET
       used = CASE
-        WHEN (unixepoch('now') * 1000 - unixepoch(window_start) * 1000) > ?
-        THEN ?
-        ELSE used + ?
+        WHEN EXTRACT(EPOCH FROM (NOW() - api_rate_limits.window_start)) * 1000 > $5
+        THEN $3
+        ELSE api_rate_limits.used + $3
       END,
       window_start = CASE
-        WHEN (unixepoch('now') * 1000 - unixepoch(window_start) * 1000) > ?
-        THEN ?
-        ELSE window_start
+        WHEN EXTRACT(EPOCH FROM (NOW() - api_rate_limits.window_start)) * 1000 > $5
+        THEN $4
+        ELSE api_rate_limits.window_start
       END
-  `).run(
-    accountId, platform, count, new Date(now).toISOString(),
-    cfg.windowMs, count, count,
-    cfg.windowMs, new Date(now).toISOString()
-  );
+  `, [accountId, platform, count, windowStartIso, windowMs]);
 };

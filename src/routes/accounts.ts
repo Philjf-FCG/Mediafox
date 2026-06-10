@@ -9,6 +9,7 @@ import { encryptToken } from '../utils/crypto';
 import { checkRateLimit } from '../utils/rateLimit';
 import { checkAccountLimit } from '../utils/planGating';
 import { createBlueskySession } from '../adapters/bluesky';
+import { asyncHandler } from '../utils/asyncHandler';
 
 const router = Router();
 
@@ -38,8 +39,8 @@ interface StudioOAuthConfig {
   metaScopes: string;
 }
 
-const getStudioOAuthConfig = (studioId: string): StudioOAuthConfig => {
-  const stored = getStudioIntegrationSettings(studioId);
+const getStudioOAuthConfig = async (studioId: string): Promise<StudioOAuthConfig> => {
+  const stored = await getStudioIntegrationSettings(studioId);
   return {
     linkedinClientId: (stored?.linkedin_client_id || process.env.LINKEDIN_CLIENT_ID || '').trim(),
     linkedinClientSecret: (stored?.linkedin_client_secret || process.env.LINKEDIN_CLIENT_SECRET || '').trim(),
@@ -111,37 +112,37 @@ const parseOauthState = (state: string, platform: OAuthPlatform): { studioId: st
 
 // ─── List accounts ────────────────────────────────────────────────────────────
 
-router.get('/', (req: Request, res: Response) => {
-  const accounts = getAccountsByStudio(req.studioId!).map(a => ({
+router.get('/', asyncHandler(async (req: Request, res: Response) => {
+  const accounts = (await getAccountsByStudio(req.studioId!)).map(a => ({
     id: a.id, type: a.type, platform: a.platform, platform_id: a.platform_id,
     display_name: a.display_name, avatar_url: a.avatar_url,
     token_expires_at: a.token_expires_at, status: a.status, connected_at: a.connected_at,
     extra: JSON.parse(a.extra),
   }));
   res.json({ accounts });
-});
+}));
 
 // ─── Account health ───────────────────────────────────────────────────────────
 
-router.get('/:id/health', (req: Request, res: Response) => {
-  const account = getAccountById(req.params.id);
+router.get('/:id/health', asyncHandler(async (req: Request, res: Response) => {
+  const account = await getAccountById(req.params.id);
   if (!account || account.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
-  const rl = checkRateLimit(account.id, account.platform as never);
+  const rl = await checkRateLimit(account.id, account.platform as never);
   res.json({ status: account.status, token_expires_at: account.token_expires_at, rate_limit: rl });
-});
+}));
 
 // ─── Disconnect ───────────────────────────────────────────────────────────────
 
-router.delete('/:id', (req: Request, res: Response) => {
-  const account = getAccountById(req.params.id);
+router.delete('/:id', asyncHandler(async (req: Request, res: Response) => {
+  const account = await getAccountById(req.params.id);
   if (!account || account.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
-  deleteAccount(req.params.id);
+  await deleteAccount(req.params.id);
   res.json({ ok: true });
-});
+}));
 
 // ─── Bluesky connection ───────────────────────────────────────────────────────
 
-router.post('/connect/bluesky', async (req: Request, res: Response) => {
+router.post('/connect/bluesky', asyncHandler(async (req: Request, res: Response) => {
   const { handle, app_password, account_type = 'company' } = req.body as {
     handle?: string; app_password?: string; account_type?: string;
   };
@@ -156,7 +157,7 @@ router.post('/connect/bluesky', async (req: Request, res: Response) => {
   try {
     const session = await createBlueskySession(handle, app_password);
     const id = uuidv4();
-    const account = upsertAccount({
+    const account = await upsertAccount({
       id,
       studio_id: req.studioId!,
       owner_user_id: account_type === 'personal' ? req.mediafoxUser!.userId : null,
@@ -176,11 +177,11 @@ router.post('/connect/bluesky', async (req: Request, res: Response) => {
     const msg = err instanceof Error ? err.message : 'Connection failed';
     res.status(400).json({ error: msg });
   }
-});
+}));
 
 // ─── Discord Webhook connection ───────────────────────────────────────────────
 
-router.post('/connect/discord/webhook', async (req: Request, res: Response) => {
+router.post('/connect/discord/webhook', asyncHandler(async (req: Request, res: Response) => {
   const { webhook_url, display_name, account_type = 'company' } = req.body as {
     webhook_url?: string; display_name?: string; account_type?: string;
   };
@@ -206,7 +207,7 @@ router.post('/connect/discord/webhook', async (req: Request, res: Response) => {
   const parts = webhook_url.split('/');
   const platformId = parts[parts.length - 2] ?? id;
 
-  const account = upsertAccount({
+  const account = await upsertAccount({
     id,
     studio_id: req.studioId!,
     owner_user_id: account_type === 'personal' ? req.mediafoxUser!.userId : null,
@@ -222,7 +223,7 @@ router.post('/connect/discord/webhook', async (req: Request, res: Response) => {
     extra: JSON.stringify({ webhook_url: encryptToken(webhook_url) }),
   });
   res.json({ account: { id: account.id, platform: 'discord', display_name: account.display_name } });
-});
+}));
 
 // ─── Slack OAuth ──────────────────────────────────────────────────────────────
 
@@ -241,13 +242,13 @@ router.get('/connect/slack', (req: Request, res: Response) => {
   res.json({ url: `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${redirect}&state=${state}` });
 });
 
-router.get('/connect/slack/callback', async (req: Request, res: Response) => {
+router.get('/connect/slack/callback', asyncHandler(async (req: Request, res: Response) => {
   const { code, state } = req.query as { code?: string; state?: string };
   if (!code || !state) { res.status(400).send('Invalid callback'); return; }
   const parsed = parseOauthState(state, 'slack');
   if (!parsed) { res.status(400).send('Invalid callback state'); return; }
   if (parsed.userId !== req.mediafoxUser!.userId) { res.status(403).send('Callback is not for this user'); return; }
-  if (!getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
+  if (!await getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
   const { studioId, type } = parsed;
 
   try {
@@ -274,7 +275,7 @@ router.get('/connect/slack/callback', async (req: Request, res: Response) => {
     );
     const firstChannel = chanRes.data.channels?.[0];
 
-    upsertAccount({
+    await upsertAccount({
       id: uuidv4(),
       studio_id: studioId,
       owner_user_id: null,
@@ -295,12 +296,12 @@ router.get('/connect/slack/callback', async (req: Request, res: Response) => {
     console.error('Slack OAuth error:', err);
     res.status(500).send('Slack connection failed');
   }
-});
+}));
 
 // ─── Meta OAuth (Facebook + Instagram) ───────────────────────────────────────
 
-router.get('/connect/meta', (req: Request, res: Response) => {
-  const cfg = getStudioOAuthConfig(req.studioId!);
+router.get('/connect/meta', asyncHandler(async (req: Request, res: Response) => {
+  const cfg = await getStudioOAuthConfig(req.studioId!);
   if (!cfg.metaAppId) { res.status(503).json({ error: 'Meta integration not configured. Set META app ID in Settings -> Integration OAuth.' }); return; }
   if (!cfg.metaRedirectUri) { res.status(503).json({ error: 'Meta integration not configured. Set Meta redirect URI in Settings -> Integration OAuth.' }); return; }
   if (!cfg.metaAppSecret) { res.status(503).json({ error: 'Meta integration not configured. Set Meta app secret in Settings -> Integration OAuth.' }); return; }
@@ -312,17 +313,17 @@ router.get('/connect/meta', (req: Request, res: Response) => {
     platform: 'meta',
   });
   res.json({ url: `https://www.facebook.com/v19.0/dialog/oauth?client_id=${cfg.metaAppId}&redirect_uri=${cfg.metaRedirectUri}&scope=${cfg.metaScopes}&state=${state}&response_type=code` });
-});
+}));
 
-router.get('/connect/meta/callback', async (req: Request, res: Response) => {
+router.get('/connect/meta/callback', asyncHandler(async (req: Request, res: Response) => {
   const { code, state } = req.query as { code?: string; state?: string };
   if (!code || !state) { res.status(400).send('Invalid callback'); return; }
   const parsed = parseOauthState(state, 'meta');
   if (!parsed) { res.status(400).send('Invalid callback state'); return; }
   if (parsed.userId !== req.mediafoxUser!.userId) { res.status(403).send('Callback is not for this user'); return; }
-  if (!getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
+  if (!await getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
   const { studioId, type } = parsed;
-  const cfg = getStudioOAuthConfig(studioId);
+  const cfg = await getStudioOAuthConfig(studioId);
   if (!cfg.metaAppId || !cfg.metaAppSecret || !cfg.metaRedirectUri) { res.status(503).send('Meta integration is not fully configured for this studio'); return; }
 
   try {
@@ -356,7 +357,7 @@ router.get('/connect/meta/callback', async (req: Request, res: Response) => {
     const pages = await getFacebookPages(longToken);
 
     for (const page of pages) {
-      upsertAccount({
+      await upsertAccount({
         id: uuidv4(),
         studio_id: studioId,
         owner_user_id: null,
@@ -377,7 +378,7 @@ router.get('/connect/meta/callback', async (req: Request, res: Response) => {
         const { getInstagramAccounts } = await import('../adapters/instagram');
         const igAccounts = await getInstagramAccounts(page.access_token, page.id);
         for (const ig of igAccounts) {
-          upsertAccount({
+          await upsertAccount({
             id: uuidv4(),
             studio_id: studioId,
             owner_user_id: null,
@@ -403,12 +404,12 @@ router.get('/connect/meta/callback', async (req: Request, res: Response) => {
     console.error('Meta OAuth error:', err);
     res.status(500).send('Meta connection failed');
   }
-});
+}));
 
 // ─── LinkedIn OAuth ───────────────────────────────────────────────────────────
 
-router.get('/connect/linkedin', (req: Request, res: Response) => {
-  const cfg = getStudioOAuthConfig(req.studioId!);
+router.get('/connect/linkedin', asyncHandler(async (req: Request, res: Response) => {
+  const cfg = await getStudioOAuthConfig(req.studioId!);
   if (!cfg.linkedinClientId) { res.status(503).json({ error: 'LinkedIn integration not configured. Set LinkedIn client ID in Settings -> Integration OAuth.' }); return; }
   if (!cfg.linkedinRedirectUri) { res.status(503).json({ error: 'LinkedIn integration not configured. Set LinkedIn redirect URI in Settings -> Integration OAuth.' }); return; }
   if (!cfg.linkedinClientSecret) { res.status(503).json({ error: 'LinkedIn integration not configured. Set LinkedIn client secret in Settings -> Integration OAuth.' }); return; }
@@ -421,17 +422,17 @@ router.get('/connect/linkedin', (req: Request, res: Response) => {
   });
   const scopes = cfg.linkedinScopes.join(' ');
   res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${cfg.linkedinClientId}&redirect_uri=${cfg.linkedinRedirectUri}&scope=${encodeURIComponent(scopes)}&state=${state}` });
-});
+}));
 
-router.get('/connect/linkedin/callback', async (req: Request, res: Response) => {
+router.get('/connect/linkedin/callback', asyncHandler(async (req: Request, res: Response) => {
   const { code, state } = req.query as { code?: string; state?: string };
   if (!code || !state) { res.status(400).send('Invalid callback'); return; }
   const parsed = parseOauthState(state, 'linkedin');
   if (!parsed) { res.status(400).send('Invalid callback state'); return; }
   if (parsed.userId !== req.mediafoxUser!.userId) { res.status(403).send('Callback is not for this user'); return; }
-  if (!getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
+  if (!await getMember(parsed.studioId, req.mediafoxUser!.userId)) { res.status(403).send('No studio access'); return; }
   const { studioId, type } = parsed;
-  const cfg = getStudioOAuthConfig(studioId);
+  const cfg = await getStudioOAuthConfig(studioId);
   if (!cfg.linkedinClientId || !cfg.linkedinClientSecret || !cfg.linkedinRedirectUri) { res.status(503).send('LinkedIn integration is not fully configured for this studio'); return; }
 
   try {
@@ -453,7 +454,7 @@ router.get('/connect/linkedin/callback', async (req: Request, res: Response) => 
     const profile = await getLinkedInProfile(access_token);
     const name = `${profile.localizedFirstName} ${profile.localizedLastName}`.trim();
 
-    upsertAccount({
+    await upsertAccount({
       id: uuidv4(),
       studio_id: studioId,
       owner_user_id: type === 'personal' ? req.mediafoxUser?.userId ?? null : null,
@@ -479,12 +480,12 @@ router.get('/connect/linkedin/callback', async (req: Request, res: Response) => 
     }
     res.status(500).send('LinkedIn connection failed');
   }
-});
+}));
 
 // ─── Token refresh ────────────────────────────────────────────────────────────
 
-router.post('/:id/refresh', async (req: Request, res: Response) => {
-  const account = getAccountById(req.params.id);
+router.post('/:id/refresh', asyncHandler(async (req: Request, res: Response) => {
+  const account = await getAccountById(req.params.id);
   if (!account || account.studio_id !== req.studioId) { res.status(404).json({ error: 'Not found' }); return; }
 
   // Only Bluesky supports programmatic refresh currently
@@ -495,7 +496,7 @@ router.post('/:id/refresh', async (req: Request, res: Response) => {
         headers: { Authorization: `Bearer ${refreshJwt}` }, timeout: 10000,
       });
       const d = r.data as { accessJwt: string; refreshJwt: string };
-      updateAccountTokens(account.id, encryptToken(d.accessJwt), encryptToken(d.refreshJwt), null);
+      await updateAccountTokens(account.id, encryptToken(d.accessJwt), encryptToken(d.refreshJwt), null);
       res.json({ ok: true });
     } catch {
       res.status(400).json({ error: 'Refresh failed — please reconnect your Bluesky account' });
@@ -504,6 +505,6 @@ router.post('/:id/refresh', async (req: Request, res: Response) => {
   }
 
   res.json({ ok: false, message: 'Manual reconnection required for this platform' });
-});
+}));
 
 export default router;

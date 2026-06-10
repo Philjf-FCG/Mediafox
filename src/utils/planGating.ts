@@ -1,7 +1,7 @@
 import axios from 'axios';
 import fs from 'fs';
 import path from 'path';
-import { getAccountsByStudio, getDb, getLocalStudioPlan } from './db';
+import { getAccountsByStudio, getPool, getLocalStudioPlan } from './db';
 
 export interface PlanLimits {
   maxConnectedAccounts: number | null;
@@ -57,7 +57,7 @@ const budgetFoxCache = new Map<string, { plan: string; expiresAt: number }>();
 
 export const getStudioPlan = async (studioId: string): Promise<string> => {
   // 1. Per-studio local override (admin-set in MediaFox DB)
-  const localPlan = getLocalStudioPlan(studioId);
+  const localPlan = await getLocalStudioPlan(studioId);
   if (localPlan && MEDIAFOX_LIMITS[localPlan]) return localPlan;
 
   // 2. Global env var override (e.g. MEDIAFOX_PLAN=pro in fly.toml)
@@ -90,7 +90,8 @@ export const getLimits = (planName: string): PlanLimits =>
 export const checkAccountLimit = async (studioId: string): Promise<{ allowed: boolean; current: number; max: number | null; plan: string }> => {
   const plan = await getStudioPlan(studioId);
   const limits = getLimits(plan);
-  const current = getAccountsByStudio(studioId).length;
+  const accounts = await getAccountsByStudio(studioId);
+  const current = accounts.length;
   const allowed = limits.maxConnectedAccounts === null || current < limits.maxConnectedAccounts;
   return { allowed, current, max: limits.maxConnectedAccounts, plan };
 };
@@ -103,9 +104,11 @@ export const checkPostQuota = async (studioId: string): Promise<{ allowed: boole
   monthStart.setDate(1);
   monthStart.setHours(0, 0, 0, 0);
 
-  const current = (getDb()
-    .prepare(`SELECT COUNT(*) as n FROM posts WHERE studio_id=? AND status IN ('scheduled','publishing','published') AND created_at >= ?`)
-    .get(studioId, monthStart.toISOString()) as { n: number }).n;
+  const { rows } = await getPool().query(
+    `SELECT COUNT(*) as n FROM posts WHERE studio_id=$1 AND status = ANY($2::text[]) AND created_at >= $3`,
+    [studioId, ['scheduled', 'publishing', 'published'], monthStart.toISOString()],
+  );
+  const current = Number((rows[0] as { n: string | number }).n);
 
   const allowed = limits.maxScheduledPostsPerMonth === null || current < limits.maxScheduledPostsPerMonth;
   return { allowed, current, max: limits.maxScheduledPostsPerMonth, plan };

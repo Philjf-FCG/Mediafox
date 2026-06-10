@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { listYouTubeChannels, uploadYouTubeVideo } from '../adapters/youtube';
-import { getDb } from '../utils/db';
+import { getPool } from '../utils/db';
 
 const router = Router();
 const STORAGE_PATH = () => process.env.MEDIA_STORAGE_PATH ?? path.join(process.cwd(), 'media');
@@ -41,9 +41,11 @@ router.post('/publish', async (req: Request, res: Response) => {
     return;
   }
 
-  const asset = getDb().prepare(
-    'SELECT id, storage_path, mime_type, filename FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL',
-  ).get(media_asset_id, req.studioId!) as { id: string; storage_path: string; mime_type: string; filename: string } | undefined;
+  const { rows } = await getPool().query(
+    'SELECT id, storage_path, mime_type, filename FROM media_assets WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL',
+    [media_asset_id, req.studioId!],
+  );
+  const asset = rows[0] as { id: string; storage_path: string; mime_type: string; filename: string } | undefined;
 
   if (!asset) { res.status(404).json({ error: 'Media asset not found' }); return; }
   if (!asset.mime_type.startsWith('video/')) {

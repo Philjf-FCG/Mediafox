@@ -24,7 +24,7 @@ const headers = (account: AccountRecord) => ({
 
 const handleLinkedIn = (err: unknown, accountId: string): never => {
   const e = err as { response?: { status?: number } };
-  if (e.response?.status === 401) updateAccountStatus(accountId, 'expired');
+  if (e.response?.status === 401) void updateAccountStatus(accountId, 'expired');
   throw err;
 };
 
@@ -32,7 +32,7 @@ export const publishToLinkedIn = async (
   account: AccountRecord,
   text: string,
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'linkedin');
+  const rl = await checkRateLimit(account.id, 'linkedin');
   if (!rl.allowed) throw new Error(`LinkedIn rate limit reached. Resets at ${rl.resetsAt}`);
 
   const body = {
@@ -52,8 +52,8 @@ export const publishToLinkedIn = async (
       headers: headers(account),
       timeout: 20000,
     });
-    consumeRateLimit(account.id, 'linkedin');
-    updateAccountStatus(account.id, 'active');
+    await consumeRateLimit(account.id, 'linkedin');
+    await updateAccountStatus(account.id, 'active');
     const postId = res.headers['x-restli-id'] as string ?? res.data;
     return { platformPostId: postId };
   } catch (err) {
@@ -67,7 +67,7 @@ export const publishImageToLinkedIn = async (
   imageBuffer: Buffer,
   filename: string,
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'linkedin');
+  const rl = await checkRateLimit(account.id, 'linkedin');
   if (!rl.allowed) throw new Error('LinkedIn rate limit reached');
 
   const at = token(account);
@@ -85,7 +85,7 @@ export const publishImageToLinkedIn = async (
         serviceRelationships: [{ relationshipType: 'OWNER', identifier: 'urn:li:userGeneratedContent' }],
       },
     }, { headers: hdrs, timeout: 20000 });
-    consumeRateLimit(account.id, 'linkedin');
+    await consumeRateLimit(account.id, 'linkedin');
 
     const uploadUrl = reg.data.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
     const asset = reg.data.value.asset;
@@ -95,7 +95,7 @@ export const publishImageToLinkedIn = async (
       headers: { Authorization: `Bearer ${at}`, 'Content-Type': 'image/jpeg' },
       timeout: 60000,
     });
-    consumeRateLimit(account.id, 'linkedin');
+    await consumeRateLimit(account.id, 'linkedin');
 
     // Step 3: Create post referencing asset
     const res = await axios.post<string>(`${BASE}/ugcPosts`, {
@@ -110,7 +110,7 @@ export const publishImageToLinkedIn = async (
       },
       visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
     }, { headers: hdrs, timeout: 20000 });
-    consumeRateLimit(account.id, 'linkedin');
+    await consumeRateLimit(account.id, 'linkedin');
 
     return { platformPostId: res.headers['x-restli-id'] as string ?? res.data };
   } catch (err) {

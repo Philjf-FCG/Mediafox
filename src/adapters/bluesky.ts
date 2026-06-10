@@ -50,7 +50,7 @@ const refreshIfNeeded = async (agent: BskyAgent, account: AccountRecord): Promis
     });
     if (!res.ok) throw new Error('Bluesky token refresh failed');
     const data = await res.json() as { accessJwt: string; refreshJwt: string };
-    updateAccountTokens(account.id, encryptToken(data.accessJwt), encryptToken(data.refreshJwt), null);
+    void updateAccountTokens(account.id, encryptToken(data.accessJwt), encryptToken(data.refreshJwt), null);
     agent.session!.accessJwt = data.accessJwt;
     agent.session!.refreshJwt = data.refreshJwt;
   }
@@ -66,7 +66,7 @@ export const publishToBluesky = async (
   mediaIds: string[],
   mediaStoragePath: string,
 ): Promise<PublishResult> => {
-  const rl = checkRateLimit(account.id, 'bluesky');
+  const rl = await checkRateLimit(account.id, 'bluesky');
   if (!rl.allowed) throw new Error(`Bluesky rate limit reached. Resets at ${rl.resetsAt}`);
 
   const agent = await getAgent(account);
@@ -86,7 +86,7 @@ export const publishToBluesky = async (
         const filePath = path.join(mediaStoragePath, mediaId);
         const data = await fs.readFile(filePath);
         const uploadRes = await agent.uploadBlob(new Uint8Array(data), { encoding: 'image/jpeg' });
-        consumeRateLimit(account.id, 'bluesky');
+        await consumeRateLimit(account.id, 'bluesky');
         images.push({ image: uploadRes.data.blob, alt: '' });
       } catch {
         // skip failed image upload
@@ -103,8 +103,8 @@ export const publishToBluesky = async (
   }
 
   const res = await agent.post(post);
-  consumeRateLimit(account.id, 'bluesky');
-  updateAccountStatus(account.id, 'active');
+  await consumeRateLimit(account.id, 'bluesky');
+  await updateAccountStatus(account.id, 'active');
 
   return { platformPostId: res.uri };
 };
@@ -114,7 +114,7 @@ export const getBlueskyNotifications = async (account: AccountRecord, cursor?: s
   await refreshIfNeeded(agent, account);
 
   const res = await agent.listNotifications({ limit: 50, cursor });
-  consumeRateLimit(account.id, 'bluesky');
+  await consumeRateLimit(account.id, 'bluesky');
 
   return {
     items: res.data.notifications,
