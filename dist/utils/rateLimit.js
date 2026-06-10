@@ -10,21 +10,21 @@ const LIMITS = {
     discord: { windowMs: 1000, maxCalls: 50 },
     slack: { windowMs: 60 * 1000, maxCalls: 50 },
 };
-const checkRateLimit = (accountId, platform) => {
-    const db = (0, db_1.getDb)();
+const checkRateLimit = async (accountId, platform) => {
     const cfg = LIMITS[platform];
     const now = Date.now();
-    const windowStart = new Date(now - cfg.windowMs).toISOString();
-    const row = db.prepare(`
+    const windowStartMs = now - cfg.windowMs;
+    const { rows } = await (0, db_1.getPool)().query(`
     SELECT used, window_start FROM api_rate_limits
-    WHERE account_id = ? AND platform = ?
-  `).get(accountId, platform);
-    if (!row || new Date(row.window_start).getTime() < now - cfg.windowMs) {
-        db.prepare(`
+    WHERE account_id = $1 AND platform = $2
+  `, [accountId, platform]);
+    const row = rows[0];
+    if (!row || new Date(row.window_start).getTime() < windowStartMs) {
+        await (0, db_1.getPool)().query(`
       INSERT INTO api_rate_limits (account_id, platform, used, window_start)
-      VALUES (?, ?, 0, ?)
-      ON CONFLICT(account_id, platform) DO UPDATE SET used=0, window_start=excluded.window_start
-    `).run(accountId, platform, new Date(now).toISOString());
+      VALUES ($1, $2, 0, $3)
+      ON CONFLICT(account_id, platform) DO UPDATE SET used=0, window_start=EXCLUDED.window_start
+    `, [accountId, platform, new Date(now).toISOString()]);
         return { allowed: true, used: 0, limit: cfg.maxCalls, remaining: cfg.maxCalls, resetsAt: new Date(now + cfg.windowMs).toISOString() };
     }
     const resetsAt = new Date(new Date(row.window_start).getTime() + cfg.windowMs).toISOString();
@@ -35,28 +35,28 @@ const checkRateLimit = (accountId, platform) => {
         remaining: Math.max(0, cfg.maxCalls - row.used),
         resetsAt,
     };
-    void windowStart;
 };
 exports.checkRateLimit = checkRateLimit;
-const consumeRateLimit = (accountId, platform, count = 1) => {
-    const db = (0, db_1.getDb)();
+const consumeRateLimit = async (accountId, platform, count = 1) => {
     const now = Date.now();
     const cfg = LIMITS[platform];
-    db.prepare(`
+    const windowStartIso = new Date(now).toISOString();
+    const windowMs = cfg.windowMs;
+    await (0, db_1.getPool)().query(`
     INSERT INTO api_rate_limits (account_id, platform, used, window_start)
-    VALUES (?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4)
     ON CONFLICT(account_id, platform) DO UPDATE SET
       used = CASE
-        WHEN (unixepoch('now') * 1000 - unixepoch(window_start) * 1000) > ?
-        THEN ?
-        ELSE used + ?
+        WHEN EXTRACT(EPOCH FROM (NOW() - api_rate_limits.window_start)) * 1000 > $5
+        THEN $3
+        ELSE api_rate_limits.used + $3
       END,
       window_start = CASE
-        WHEN (unixepoch('now') * 1000 - unixepoch(window_start) * 1000) > ?
-        THEN ?
-        ELSE window_start
+        WHEN EXTRACT(EPOCH FROM (NOW() - api_rate_limits.window_start)) * 1000 > $5
+        THEN $4
+        ELSE api_rate_limits.window_start
       END
-  `).run(accountId, platform, count, new Date(now).toISOString(), cfg.windowMs, count, count, cfg.windowMs, new Date(now).toISOString());
+  `, [accountId, platform, count, windowStartIso, windowMs]);
 };
 exports.consumeRateLimit = consumeRateLimit;
 //# sourceMappingURL=rateLimit.js.map

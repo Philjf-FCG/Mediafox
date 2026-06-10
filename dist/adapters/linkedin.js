@@ -24,11 +24,11 @@ const headers = (account) => ({
 const handleLinkedIn = (err, accountId) => {
     const e = err;
     if (e.response?.status === 401)
-        (0, db_1.updateAccountStatus)(accountId, 'expired');
+        void (0, db_1.updateAccountStatus)(accountId, 'expired');
     throw err;
 };
 const publishToLinkedIn = async (account, text) => {
-    const rl = (0, rateLimit_1.checkRateLimit)(account.id, 'linkedin');
+    const rl = await (0, rateLimit_1.checkRateLimit)(account.id, 'linkedin');
     if (!rl.allowed)
         throw new Error(`LinkedIn rate limit reached. Resets at ${rl.resetsAt}`);
     const body = {
@@ -47,8 +47,8 @@ const publishToLinkedIn = async (account, text) => {
             headers: headers(account),
             timeout: 20000,
         });
-        (0, rateLimit_1.consumeRateLimit)(account.id, 'linkedin');
-        (0, db_1.updateAccountStatus)(account.id, 'active');
+        await (0, rateLimit_1.consumeRateLimit)(account.id, 'linkedin');
+        await (0, db_1.updateAccountStatus)(account.id, 'active');
         const postId = res.headers['x-restli-id'] ?? res.data;
         return { platformPostId: postId };
     }
@@ -58,7 +58,7 @@ const publishToLinkedIn = async (account, text) => {
 };
 exports.publishToLinkedIn = publishToLinkedIn;
 const publishImageToLinkedIn = async (account, text, imageBuffer, filename) => {
-    const rl = (0, rateLimit_1.checkRateLimit)(account.id, 'linkedin');
+    const rl = await (0, rateLimit_1.checkRateLimit)(account.id, 'linkedin');
     if (!rl.allowed)
         throw new Error('LinkedIn rate limit reached');
     const at = token(account);
@@ -73,7 +73,7 @@ const publishImageToLinkedIn = async (account, text, imageBuffer, filename) => {
                 serviceRelationships: [{ relationshipType: 'OWNER', identifier: 'urn:li:userGeneratedContent' }],
             },
         }, { headers: hdrs, timeout: 20000 });
-        (0, rateLimit_1.consumeRateLimit)(account.id, 'linkedin');
+        await (0, rateLimit_1.consumeRateLimit)(account.id, 'linkedin');
         const uploadUrl = reg.data.value.uploadMechanism['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'].uploadUrl;
         const asset = reg.data.value.asset;
         // Step 2: Upload binary
@@ -81,7 +81,7 @@ const publishImageToLinkedIn = async (account, text, imageBuffer, filename) => {
             headers: { Authorization: `Bearer ${at}`, 'Content-Type': 'image/jpeg' },
             timeout: 60000,
         });
-        (0, rateLimit_1.consumeRateLimit)(account.id, 'linkedin');
+        await (0, rateLimit_1.consumeRateLimit)(account.id, 'linkedin');
         // Step 3: Create post referencing asset
         const res = await axios_1.default.post(`${BASE}/ugcPosts`, {
             author,
@@ -95,7 +95,7 @@ const publishImageToLinkedIn = async (account, text, imageBuffer, filename) => {
             },
             visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' },
         }, { headers: hdrs, timeout: 20000 });
-        (0, rateLimit_1.consumeRateLimit)(account.id, 'linkedin');
+        await (0, rateLimit_1.consumeRateLimit)(account.id, 'linkedin');
         return { platformPostId: res.headers['x-restli-id'] ?? res.data };
     }
     catch (err) {

@@ -3,44 +3,28 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.createTikTokAssist = exports.markRedditAssistPublished = exports.getRedditAssistsByPost = exports.createRedditAssist = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.purgeArchivedContentOlderThan = exports.getMediaAssetByHash = exports.getMediaAssetBySource = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = exports.getDb = exports.getLocalDbPath = void 0;
-exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.upsertStudioIntegrationSettings = exports.getStudioIntegrationSettingsSummary = exports.getStudioIntegrationSettings = exports.setLocalStudioPlan = exports.getLocalStudioPlan = exports.markTikTokAssistPublished = exports.getTikTokAssistsByPost = void 0;
-const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
-const path_1 = __importDefault(require("path"));
-const fs_1 = __importDefault(require("fs"));
+exports.markTikTokAssistPublished = exports.getTikTokAssistsByPost = exports.createTikTokAssist = exports.markRedditAssistPublished = exports.getRedditAssistsByPost = exports.createRedditAssist = exports.markNotificationsRead = exports.getNotifications = exports.createNotification = exports.getPendingApproval = exports.resolveApproval = exports.createApprovalRequest = exports.ensureOwner = exports.removeMember = exports.upsertMember = exports.getMembersByStudio = exports.getMember = exports.purgeArchivedContentOlderThan = exports.getMediaAssetByHash = exports.getMediaAssetBySource = exports.restoreMediaAsset = exports.archiveMediaAsset = exports.deleteMediaAsset = exports.getMediaAssets = exports.createMediaAsset = exports.restoreInboxItem = exports.archiveInboxItem = exports.updateInboxItem = exports.getInboxItems = exports.upsertInboxItem = exports.resolveQueueItem = exports.lockQueueItem = exports.getDueQueueItems = exports.enqueueVariant = exports.updateVariant = exports.getVariantsByPost = exports.createPostVariant = exports.restorePost = exports.archivePost = exports.updatePost = exports.getPostsInRange = exports.getPostsByStudio = exports.getPostById = exports.createPost = exports.deleteAccount = exports.updateAccountTokens = exports.updateAccountStatus = exports.upsertAccount = exports.getAccountById = exports.getAccountsByStudio = void 0;
+exports.audit = exports.updateUser = exports.createUser = exports.getUserById = exports.getUserByEmail = exports.upsertStudioIntegrationSettings = exports.getStudioIntegrationSettingsSummary = exports.getStudioIntegrationSettings = exports.setLocalStudioPlan = exports.getLocalStudioPlan = void 0;
+exports.getPool = getPool;
+exports.initSchema = initSchema;
+const pg_1 = __importDefault(require("pg"));
+const pg_2 = require("pg");
 const crypto_1 = require("./crypto");
-let _db = null;
-const getLocalDbPath = () => {
-    if (process.env.DATABASE_PATH)
-        return process.env.DATABASE_PATH;
-    return path_1.default.join(process.cwd(), 'mediafox.db');
-};
-exports.getLocalDbPath = getLocalDbPath;
-const getDb = () => {
-    if (_db)
-        return _db;
-    const dbPath = (0, exports.getLocalDbPath)();
-    const dir = path_1.default.dirname(dbPath);
-    if (!fs_1.default.existsSync(dir))
-        fs_1.default.mkdirSync(dir, { recursive: true });
-    _db = new better_sqlite3_1.default(dbPath);
-    _db.pragma('journal_mode = WAL');
-    _db.pragma('foreign_keys = ON');
-    migrate(_db);
-    return _db;
-};
-exports.getDb = getDb;
-const hasColumn = (db, table, column) => {
-    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
-    return cols.some(c => c.name === column);
-};
-const ensureColumn = (db, table, column, sqlType) => {
-    if (!hasColumn(db, table, column)) {
-        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${sqlType}`);
+// ─── Type parsers ─────────────────────────────────────────────────────────────
+pg_1.default.types.setTypeParser(pg_1.default.types.builtins.TIMESTAMP, (v) => v ? new Date(v + 'Z').toISOString() : null);
+pg_1.default.types.setTypeParser(pg_1.default.types.builtins.TIMESTAMPTZ, (v) => v ? new Date(v).toISOString() : null);
+// ─── Pool ─────────────────────────────────────────────────────────────────────
+let _pool = null;
+function getPool() {
+    if (!_pool) {
+        _pool = new pg_2.Pool({ connectionString: process.env.DATABASE_URL || 'postgresql://localhost/mediafox' });
     }
-};
-const migrate = (db) => {
-    db.exec(`
+    return _pool;
+}
+// ─── Schema ───────────────────────────────────────────────────────────────────
+async function initSchema() {
+    const pool = getPool();
+    await pool.query(`
     CREATE TABLE IF NOT EXISTS accounts (
       id               TEXT PRIMARY KEY,
       studio_id        TEXT NOT NULL,
@@ -52,11 +36,11 @@ const migrate = (db) => {
       avatar_url       TEXT,
       access_token     TEXT NOT NULL,
       refresh_token    TEXT,
-      token_expires_at TEXT,
+      token_expires_at TIMESTAMPTZ,
       scope            TEXT,
       extra            TEXT DEFAULT '{}',
-      connected_at     TEXT NOT NULL DEFAULT (datetime('now')),
-      last_synced_at   TEXT,
+      connected_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_synced_at   TIMESTAMPTZ,
       status           TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','expired','error')),
       UNIQUE(studio_id, platform, platform_id)
     );
@@ -68,12 +52,12 @@ const migrate = (db) => {
       title            TEXT,
       status           TEXT NOT NULL DEFAULT 'draft'
                          CHECK(status IN ('draft','pending_approval','scheduled','publishing','published','failed','cancelled')),
-      scheduled_at     TEXT,
-      published_at     TEXT,
-      archived_at      TEXT,
+      scheduled_at     TIMESTAMPTZ,
+      published_at     TIMESTAMPTZ,
+      archived_at      TIMESTAMPTZ,
       archived_by      TEXT,
-      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS post_variants (
@@ -87,18 +71,18 @@ const migrate = (db) => {
                          CHECK(status IN ('pending','published','failed')),
       error_message    TEXT,
       retry_count      INTEGER NOT NULL DEFAULT 0,
-      published_at     TEXT
+      published_at     TIMESTAMPTZ
     );
 
     CREATE TABLE IF NOT EXISTS post_queue (
       id               TEXT PRIMARY KEY,
       post_variant_id  TEXT NOT NULL REFERENCES post_variants(id) ON DELETE CASCADE,
-      fire_at          TEXT NOT NULL,
+      fire_at          TIMESTAMPTZ NOT NULL,
       attempts         INTEGER NOT NULL DEFAULT 0,
-      last_attempt_at  TEXT,
+      last_attempt_at  TIMESTAMPTZ,
       status           TEXT NOT NULL DEFAULT 'pending'
                          CHECK(status IN ('pending','processing','done','dead')),
-      created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS media_assets (
@@ -116,9 +100,9 @@ const migrate = (db) => {
       source_provider  TEXT,
       source_id        TEXT,
       source_hash      TEXT,
-      archived_at      TEXT,
+      archived_at      TIMESTAMPTZ,
       archived_by      TEXT,
-      created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS inbox_items (
@@ -135,10 +119,10 @@ const migrate = (db) => {
       status               TEXT NOT NULL DEFAULT 'unread' CHECK(status IN ('unread','read','resolved')),
       assigned_to          TEXT,
       internal_note        TEXT,
-      archived_at          TEXT,
+      archived_at          TIMESTAMPTZ,
       archived_by          TEXT,
-      received_at          TEXT NOT NULL,
-      created_at           TEXT NOT NULL DEFAULT (datetime('now')),
+      received_at          TIMESTAMPTZ NOT NULL,
+      created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(account_id, platform_item_id)
     );
 
@@ -150,8 +134,8 @@ const migrate = (db) => {
       status           TEXT NOT NULL DEFAULT 'pending'
                          CHECK(status IN ('pending','approved','rejected','withdrawn')),
       reviewer_note    TEXT,
-      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-      resolved_at      TEXT
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      resolved_at      TIMESTAMPTZ
     );
 
     CREATE TABLE IF NOT EXISTS studio_members (
@@ -160,7 +144,7 @@ const migrate = (db) => {
       email            TEXT NOT NULL,
       name             TEXT NOT NULL,
       role             TEXT NOT NULL CHECK(role IN ('owner','manager','editor','viewer')),
-      joined_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      joined_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (studio_id, user_id)
     );
 
@@ -173,7 +157,7 @@ const migrate = (db) => {
       body             TEXT,
       link             TEXT,
       read             INTEGER NOT NULL DEFAULT 0,
-      created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS reddit_assists (
@@ -187,8 +171,8 @@ const migrate = (db) => {
       status           TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','handed_off','published','cancelled')),
       handoff_note     TEXT,
       publish_url      TEXT,
-      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS tiktok_assists (
@@ -201,8 +185,8 @@ const migrate = (db) => {
       status           TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','handed_off','published','cancelled')),
       handoff_note     TEXT,
       publish_url      TEXT,
-      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS audit_events (
@@ -213,27 +197,22 @@ const migrate = (db) => {
       entity_type      TEXT NOT NULL,
       entity_id        TEXT NOT NULL,
       detail           TEXT DEFAULT '{}',
-      created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS api_rate_limits (
       account_id       TEXT NOT NULL,
       platform         TEXT NOT NULL,
       used             INTEGER NOT NULL DEFAULT 0,
-      window_start     TEXT NOT NULL,
+      window_start     TIMESTAMPTZ NOT NULL,
       PRIMARY KEY (account_id, platform)
     );
 
-    CREATE INDEX IF NOT EXISTS idx_posts_studio    ON posts(studio_id, status);
-    CREATE INDEX IF NOT EXISTS idx_posts_archived  ON posts(studio_id, archived_at);
-    CREATE INDEX IF NOT EXISTS idx_posts_scheduled ON posts(scheduled_at) WHERE status='scheduled';
-    CREATE INDEX IF NOT EXISTS idx_variants_post   ON post_variants(post_id);
-    CREATE INDEX IF NOT EXISTS idx_queue_fire      ON post_queue(fire_at) WHERE status='pending';
     CREATE TABLE IF NOT EXISTS post_analytics (
       id               TEXT PRIMARY KEY,
       post_variant_id  TEXT NOT NULL REFERENCES post_variants(id) ON DELETE CASCADE,
       platform         TEXT NOT NULL,
-      synced_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      synced_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       likes            INTEGER DEFAULT 0,
       comments         INTEGER DEFAULT 0,
       shares           INTEGER DEFAULT 0,
@@ -246,23 +225,17 @@ const migrate = (db) => {
     CREATE TABLE IF NOT EXISTS account_analytics (
       id               TEXT PRIMARY KEY,
       account_id       TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-      recorded_at      TEXT NOT NULL,
+      recorded_at      TIMESTAMPTZ NOT NULL,
       followers        INTEGER DEFAULT 0,
       following        INTEGER DEFAULT 0,
       posts_count      INTEGER DEFAULT 0
     );
 
-    CREATE INDEX IF NOT EXISTS idx_inbox_studio    ON inbox_items(studio_id, status);
-    CREATE INDEX IF NOT EXISTS idx_inbox_archived  ON inbox_items(studio_id, archived_at);
-    CREATE INDEX IF NOT EXISTS idx_accounts_studio ON accounts(studio_id);
-    CREATE INDEX IF NOT EXISTS idx_media_archived  ON media_assets(studio_id, archived_at);
-    CREATE INDEX IF NOT EXISTS idx_media_source    ON media_assets(studio_id, source_provider, source_id);
-    CREATE INDEX IF NOT EXISTS idx_media_hash      ON media_assets(studio_id, source_hash);
     CREATE TABLE IF NOT EXISTS studio_plans (
       studio_id     TEXT PRIMARY KEY,
       plan          TEXT NOT NULL DEFAULT 'pro',
       set_by        TEXT,
-      set_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      set_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS studio_integration_settings (
@@ -276,7 +249,7 @@ const migrate = (db) => {
       meta_redirect_uri          TEXT,
       meta_scopes                TEXT,
       updated_by                 TEXT,
-      updated_at                 TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS users (
@@ -286,10 +259,21 @@ const migrate = (db) => {
       google_sub    TEXT,
       role          TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('admin','user')),
       status        TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','denied')),
-      last_login_at TEXT,
-      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+      last_login_at TIMESTAMPTZ,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE INDEX IF NOT EXISTS idx_posts_studio    ON posts(studio_id, status);
+    CREATE INDEX IF NOT EXISTS idx_posts_archived  ON posts(studio_id, archived_at);
+    CREATE INDEX IF NOT EXISTS idx_posts_scheduled ON posts(scheduled_at) WHERE status='scheduled';
+    CREATE INDEX IF NOT EXISTS idx_variants_post   ON post_variants(post_id);
+    CREATE INDEX IF NOT EXISTS idx_queue_fire      ON post_queue(fire_at) WHERE status='pending';
+    CREATE INDEX IF NOT EXISTS idx_inbox_studio    ON inbox_items(studio_id, status);
+    CREATE INDEX IF NOT EXISTS idx_inbox_archived  ON inbox_items(studio_id, archived_at);
+    CREATE INDEX IF NOT EXISTS idx_accounts_studio ON accounts(studio_id);
+    CREATE INDEX IF NOT EXISTS idx_media_archived  ON media_assets(studio_id, archived_at);
+    CREATE INDEX IF NOT EXISTS idx_media_source    ON media_assets(studio_id, source_provider, source_id);
+    CREATE INDEX IF NOT EXISTS idx_media_hash      ON media_assets(studio_id, source_hash);
     CREATE INDEX IF NOT EXISTS idx_notifications   ON notifications(recipient_id, read);
     CREATE INDEX IF NOT EXISTS idx_audit           ON audit_events(studio_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_post_analytics  ON post_analytics(post_variant_id);
@@ -298,319 +282,315 @@ const migrate = (db) => {
     CREATE INDEX IF NOT EXISTS idx_tiktok_assists  ON tiktok_assists(studio_id, post_id, status);
   `);
     // Backward-compatible migration for existing databases created before archive columns existed.
-    ensureColumn(db, 'posts', 'archived_at', 'TEXT');
-    ensureColumn(db, 'posts', 'archived_by', 'TEXT');
-    ensureColumn(db, 'media_assets', 'archived_at', 'TEXT');
-    ensureColumn(db, 'media_assets', 'archived_by', 'TEXT');
-    ensureColumn(db, 'media_assets', 'source_provider', 'TEXT');
-    ensureColumn(db, 'media_assets', 'source_id', 'TEXT');
-    ensureColumn(db, 'media_assets', 'source_hash', 'TEXT');
-    ensureColumn(db, 'inbox_items', 'archived_at', 'TEXT');
-    ensureColumn(db, 'inbox_items', 'archived_by', 'TEXT');
-};
-const getAccountsByStudio = (studioId) => (0, exports.getDb)().prepare('SELECT * FROM accounts WHERE studio_id = ? ORDER BY platform, display_name').all(studioId);
+    await pool.query(`DO $$ BEGIN ALTER TABLE posts ADD COLUMN archived_at TIMESTAMPTZ; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+    await pool.query(`DO $$ BEGIN ALTER TABLE posts ADD COLUMN archived_by TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+    await pool.query(`DO $$ BEGIN ALTER TABLE media_assets ADD COLUMN archived_at TIMESTAMPTZ; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+    await pool.query(`DO $$ BEGIN ALTER TABLE media_assets ADD COLUMN archived_by TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+    await pool.query(`DO $$ BEGIN ALTER TABLE media_assets ADD COLUMN source_provider TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+    await pool.query(`DO $$ BEGIN ALTER TABLE media_assets ADD COLUMN source_id TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+    await pool.query(`DO $$ BEGIN ALTER TABLE media_assets ADD COLUMN source_hash TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+    await pool.query(`DO $$ BEGIN ALTER TABLE inbox_items ADD COLUMN archived_at TIMESTAMPTZ; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+    await pool.query(`DO $$ BEGIN ALTER TABLE inbox_items ADD COLUMN archived_by TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$`);
+}
+const getAccountsByStudio = async (studioId) => (await getPool().query('SELECT * FROM accounts WHERE studio_id = $1 ORDER BY platform, display_name', [studioId])).rows;
 exports.getAccountsByStudio = getAccountsByStudio;
-const getAccountById = (id) => (0, exports.getDb)().prepare('SELECT * FROM accounts WHERE id = ?').get(id) ?? null;
+const getAccountById = async (id) => (await getPool().query('SELECT * FROM accounts WHERE id = $1', [id])).rows[0] ?? null;
 exports.getAccountById = getAccountById;
-const upsertAccount = (a) => {
-    (0, exports.getDb)().prepare(`
+const upsertAccount = async (a) => {
+    const status = a.status ?? 'active';
+    await getPool().query(`
     INSERT INTO accounts (id, studio_id, owner_user_id, type, platform, platform_id, display_name,
       avatar_url, access_token, refresh_token, token_expires_at, scope, extra, status)
-    VALUES (@id, @studio_id, @owner_user_id, @type, @platform, @platform_id, @display_name,
-      @avatar_url, @access_token, @refresh_token, @token_expires_at, @scope, @extra, @status)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     ON CONFLICT(studio_id, platform, platform_id) DO UPDATE SET
-      display_name=excluded.display_name, avatar_url=excluded.avatar_url,
-      access_token=excluded.access_token, refresh_token=excluded.refresh_token,
-      token_expires_at=excluded.token_expires_at, scope=excluded.scope,
-      extra=excluded.extra, status='active'
-  `).run({ ...a, status: a.status ?? 'active' });
-    return (0, exports.getAccountById)(a.id);
+      display_name=EXCLUDED.display_name, avatar_url=EXCLUDED.avatar_url,
+      access_token=EXCLUDED.access_token, refresh_token=EXCLUDED.refresh_token,
+      token_expires_at=EXCLUDED.token_expires_at, scope=EXCLUDED.scope,
+      extra=EXCLUDED.extra, status='active'
+  `, [a.id, a.studio_id, a.owner_user_id, a.type, a.platform, a.platform_id, a.display_name,
+        a.avatar_url, a.access_token, a.refresh_token, a.token_expires_at, a.scope, a.extra, status]);
+    return (await (0, exports.getAccountById)(a.id));
 };
 exports.upsertAccount = upsertAccount;
-const updateAccountStatus = (id, status) => {
-    (0, exports.getDb)().prepare('UPDATE accounts SET status=? WHERE id=?').run(status, id);
+const updateAccountStatus = async (id, status) => {
+    await getPool().query('UPDATE accounts SET status=$1 WHERE id=$2', [status, id]);
 };
 exports.updateAccountStatus = updateAccountStatus;
-const updateAccountTokens = (id, accessToken, refreshToken, expiresAt) => {
-    (0, exports.getDb)().prepare('UPDATE accounts SET access_token=?, refresh_token=?, token_expires_at=?, status=\'active\' WHERE id=?')
-        .run(accessToken, refreshToken, expiresAt, id);
+const updateAccountTokens = async (id, accessToken, refreshToken, expiresAt) => {
+    await getPool().query("UPDATE accounts SET access_token=$1, refresh_token=$2, token_expires_at=$3, status='active' WHERE id=$4", [accessToken, refreshToken, expiresAt, id]);
 };
 exports.updateAccountTokens = updateAccountTokens;
-const deleteAccount = (id) => {
-    (0, exports.getDb)().prepare('DELETE FROM accounts WHERE id=?').run(id);
+const deleteAccount = async (id) => {
+    await getPool().query('DELETE FROM accounts WHERE id=$1', [id]);
 };
 exports.deleteAccount = deleteAccount;
-const createPost = (p) => {
-    (0, exports.getDb)().prepare('INSERT INTO posts (id, studio_id, author_user_id, title) VALUES (@id, @studio_id, @author_user_id, @title)').run(p);
-    return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE id=?').get(p.id);
+const createPost = async (p) => {
+    await getPool().query('INSERT INTO posts (id, studio_id, author_user_id, title) VALUES ($1, $2, $3, $4)', [p.id, p.studio_id, p.author_user_id, p.title]);
+    return (await getPool().query('SELECT * FROM posts WHERE id=$1', [p.id])).rows[0];
 };
 exports.createPost = createPost;
-const getPostById = (id) => (0, exports.getDb)().prepare('SELECT * FROM posts WHERE id=?').get(id) ?? null;
+const getPostById = async (id) => (await getPool().query('SELECT * FROM posts WHERE id=$1', [id])).rows[0] ?? null;
 exports.getPostById = getPostById;
-const getPostsByStudio = (studioId, status, includeArchived = false) => {
+const getPostsByStudio = async (studioId, status, includeArchived = false) => {
     if (status) {
         if (includeArchived)
-            return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? AND status=? ORDER BY created_at DESC').all(studioId, status);
-        return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? AND status=? AND archived_at IS NULL ORDER BY created_at DESC').all(studioId, status);
+            return (await getPool().query('SELECT * FROM posts WHERE studio_id=$1 AND status=$2 ORDER BY created_at DESC', [studioId, status])).rows;
+        return (await getPool().query('SELECT * FROM posts WHERE studio_id=$1 AND status=$2 AND archived_at IS NULL ORDER BY created_at DESC', [studioId, status])).rows;
     }
     if (includeArchived)
-        return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? ORDER BY created_at DESC').all(studioId);
-    return (0, exports.getDb)().prepare('SELECT * FROM posts WHERE studio_id=? AND archived_at IS NULL ORDER BY created_at DESC').all(studioId);
+        return (await getPool().query('SELECT * FROM posts WHERE studio_id=$1 ORDER BY created_at DESC', [studioId])).rows;
+    return (await getPool().query('SELECT * FROM posts WHERE studio_id=$1 AND archived_at IS NULL ORDER BY created_at DESC', [studioId])).rows;
 };
 exports.getPostsByStudio = getPostsByStudio;
-const getPostsInRange = (studioId, from, to, includeArchived = false) => (0, exports.getDb)().prepare(`SELECT * FROM posts WHERE studio_id=? ${includeArchived ? '' : 'AND archived_at IS NULL'} AND (
-    (scheduled_at >= ? AND scheduled_at <= ?) OR (published_at >= ? AND published_at <= ?)
-  ) ORDER BY COALESCE(scheduled_at, published_at)`).all(studioId, from, to, from, to);
+const getPostsInRange = async (studioId, from, to, includeArchived = false) => {
+    const archivedClause = includeArchived ? '' : 'AND archived_at IS NULL';
+    return (await getPool().query(`SELECT * FROM posts WHERE studio_id=$1 ${archivedClause} AND (
+      (scheduled_at >= $2 AND scheduled_at <= $3) OR (published_at >= $2 AND published_at <= $3)
+    ) ORDER BY COALESCE(scheduled_at, published_at)`, [studioId, from, to])).rows;
+};
 exports.getPostsInRange = getPostsInRange;
-const updatePost = (id, fields) => {
-    const updates = Object.entries(fields)
-        .filter(([k]) => !['id', 'studio_id', 'author_user_id', 'created_at'].includes(k))
-        .map(([k]) => `${k}=@${k}`).join(', ');
-    if (!updates)
+const updatePost = async (id, fields) => {
+    const entries = Object.entries(fields).filter(([k]) => !['id', 'studio_id', 'author_user_id', 'created_at'].includes(k));
+    if (!entries.length)
         return;
-    (0, exports.getDb)().prepare(`UPDATE posts SET ${updates}, updated_at=datetime('now') WHERE id=@id`).run({ ...fields, id });
+    const setClauses = entries.map(([k], i) => `${k}=$${i + 1}`).join(', ');
+    const values = entries.map(([, v]) => v);
+    await getPool().query(`UPDATE posts SET ${setClauses}, updated_at=NOW() WHERE id=$${values.length + 1}`, [...values, id]);
 };
 exports.updatePost = updatePost;
-const archivePost = (id, actorId) => {
-    (0, exports.getDb)().prepare("UPDATE posts SET archived_at=datetime('now'), archived_by=?, updated_at=datetime('now') WHERE id=?").run(actorId, id);
+const archivePost = async (id, actorId) => {
+    await getPool().query('UPDATE posts SET archived_at=NOW(), archived_by=$1, updated_at=NOW() WHERE id=$2', [actorId, id]);
 };
 exports.archivePost = archivePost;
-const restorePost = (id) => {
-    (0, exports.getDb)().prepare("UPDATE posts SET archived_at=NULL, archived_by=NULL, updated_at=datetime('now') WHERE id=?").run(id);
+const restorePost = async (id) => {
+    await getPool().query('UPDATE posts SET archived_at=NULL, archived_by=NULL, updated_at=NOW() WHERE id=$1', [id]);
 };
 exports.restorePost = restorePost;
-const createPostVariant = (v) => {
-    (0, exports.getDb)().prepare(`INSERT INTO post_variants (id, post_id, account_id, body, media_ids)
-    VALUES (@id, @post_id, @account_id, @body, @media_ids)`).run(v);
-    return (0, exports.getDb)().prepare('SELECT * FROM post_variants WHERE id=?').get(v.id);
+const createPostVariant = async (v) => {
+    await getPool().query('INSERT INTO post_variants (id, post_id, account_id, body, media_ids) VALUES ($1, $2, $3, $4, $5)', [v.id, v.post_id, v.account_id, v.body, v.media_ids]);
+    return (await getPool().query('SELECT * FROM post_variants WHERE id=$1', [v.id])).rows[0];
 };
 exports.createPostVariant = createPostVariant;
-const getVariantsByPost = (postId) => (0, exports.getDb)().prepare('SELECT * FROM post_variants WHERE post_id=?').all(postId);
+const getVariantsByPost = async (postId) => (await getPool().query('SELECT * FROM post_variants WHERE post_id=$1', [postId])).rows;
 exports.getVariantsByPost = getVariantsByPost;
-const updateVariant = (id, fields) => {
-    const cols = Object.entries(fields).filter(([k]) => k !== 'id').map(([k]) => `${k}=@${k}`).join(', ');
-    if (!cols)
+const updateVariant = async (id, fields) => {
+    const entries = Object.entries(fields).filter(([k]) => k !== 'id');
+    if (!entries.length)
         return;
-    (0, exports.getDb)().prepare(`UPDATE post_variants SET ${cols} WHERE id=@id`).run({ ...fields, id });
+    const setClauses = entries.map(([k], i) => `${k}=$${i + 1}`).join(', ');
+    const values = entries.map(([, v]) => v);
+    await getPool().query(`UPDATE post_variants SET ${setClauses} WHERE id=$${values.length + 1}`, [...values, id]);
 };
 exports.updateVariant = updateVariant;
-const enqueueVariant = (id, variantId, fireAt) => {
-    (0, exports.getDb)().prepare('INSERT OR REPLACE INTO post_queue (id, post_variant_id, fire_at) VALUES (?,?,?)').run(id, variantId, fireAt);
+const enqueueVariant = async (id, variantId, fireAt) => {
+    await getPool().query('INSERT INTO post_queue (id, post_variant_id, fire_at) VALUES ($1, $2, $3) ON CONFLICT(id) DO UPDATE SET fire_at=EXCLUDED.fire_at', [id, variantId, fireAt]);
 };
 exports.enqueueVariant = enqueueVariant;
-const getDueQueueItems = () => (0, exports.getDb)().prepare("SELECT * FROM post_queue WHERE status='pending' AND fire_at <= datetime('now') ORDER BY fire_at LIMIT 50").all();
+const getDueQueueItems = async () => (await getPool().query("SELECT * FROM post_queue WHERE status='pending' AND fire_at <= NOW() ORDER BY fire_at LIMIT 50")).rows;
 exports.getDueQueueItems = getDueQueueItems;
-const lockQueueItem = (id) => {
-    const r = (0, exports.getDb)().prepare("UPDATE post_queue SET status='processing', last_attempt_at=datetime('now'), attempts=attempts+1 WHERE id=? AND status='pending'").run(id);
-    return r.changes > 0;
+const lockQueueItem = async (id) => {
+    const r = await getPool().query("UPDATE post_queue SET status='processing', last_attempt_at=NOW(), attempts=attempts+1 WHERE id=$1 AND status='pending'", [id]);
+    return (r.rowCount ?? 0) > 0;
 };
 exports.lockQueueItem = lockQueueItem;
-const resolveQueueItem = (id, success, nextFireAt) => {
+const resolveQueueItem = async (id, success, nextFireAt) => {
     if (success) {
-        (0, exports.getDb)().prepare("UPDATE post_queue SET status='done' WHERE id=?").run(id);
+        await getPool().query("UPDATE post_queue SET status='done' WHERE id=$1", [id]);
     }
     else if (nextFireAt) {
-        (0, exports.getDb)().prepare("UPDATE post_queue SET status='pending', fire_at=? WHERE id=?").run(nextFireAt, id);
+        await getPool().query("UPDATE post_queue SET status='pending', fire_at=$1 WHERE id=$2", [nextFireAt, id]);
     }
     else {
-        (0, exports.getDb)().prepare("UPDATE post_queue SET status='dead' WHERE id=?").run(id);
+        await getPool().query("UPDATE post_queue SET status='dead' WHERE id=$1", [id]);
     }
 };
 exports.resolveQueueItem = resolveQueueItem;
-const upsertInboxItem = (item) => {
-    (0, exports.getDb)().prepare(`
+const upsertInboxItem = async (item) => {
+    await getPool().query(`
     INSERT INTO inbox_items (id, studio_id, account_id, platform, platform_item_id, type,
       author_name, author_platform_id, body, parent_post_id, received_at)
-    VALUES (@id, @studio_id, @account_id, @platform, @platform_item_id, @type,
-      @author_name, @author_platform_id, @body, @parent_post_id, @received_at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
     ON CONFLICT(account_id, platform_item_id) DO NOTHING
-  `).run(item);
+  `, [item.id, item.studio_id, item.account_id, item.platform, item.platform_item_id, item.type,
+        item.author_name, item.author_platform_id, item.body, item.parent_post_id, item.received_at]);
 };
 exports.upsertInboxItem = upsertInboxItem;
-const getInboxItems = (studioId, filters = {}) => {
-    let q = 'SELECT * FROM inbox_items WHERE studio_id=?';
+const getInboxItems = async (studioId, filters = {}) => {
     const params = [studioId];
+    let q = 'SELECT * FROM inbox_items WHERE studio_id=$1';
     if (!filters.includeArchived)
         q += ' AND archived_at IS NULL';
     if (filters.platform) {
-        q += ' AND platform=?';
         params.push(filters.platform);
+        q += ` AND platform=$${params.length}`;
     }
     if (filters.status) {
-        q += ' AND status=?';
         params.push(filters.status);
+        q += ` AND status=$${params.length}`;
     }
     if (filters.accountId) {
-        q += ' AND account_id=?';
         params.push(filters.accountId);
+        q += ` AND account_id=$${params.length}`;
     }
     q += ' ORDER BY received_at DESC LIMIT 200';
-    return (0, exports.getDb)().prepare(q).all(...params);
+    return (await getPool().query(q, params)).rows;
 };
 exports.getInboxItems = getInboxItems;
-const updateInboxItem = (id, fields) => {
-    const cols = Object.entries(fields).filter(([, v]) => v !== undefined).map(([k]) => `${k}=@${k}`).join(', ');
-    if (!cols)
+const updateInboxItem = async (id, fields) => {
+    const entries = Object.entries(fields).filter(([, v]) => v !== undefined);
+    if (!entries.length)
         return;
-    (0, exports.getDb)().prepare(`UPDATE inbox_items SET ${cols} WHERE id=@id`).run({ ...fields, id });
+    const setClauses = entries.map(([k], i) => `${k}=$${i + 1}`).join(', ');
+    const values = entries.map(([, v]) => v);
+    await getPool().query(`UPDATE inbox_items SET ${setClauses} WHERE id=$${values.length + 1}`, [...values, id]);
 };
 exports.updateInboxItem = updateInboxItem;
-const archiveInboxItem = (id, actorId) => {
-    (0, exports.getDb)().prepare("UPDATE inbox_items SET archived_at=datetime('now'), archived_by=? WHERE id=?").run(actorId, id);
+const archiveInboxItem = async (id, actorId) => {
+    await getPool().query('UPDATE inbox_items SET archived_at=NOW(), archived_by=$1 WHERE id=$2', [actorId, id]);
 };
 exports.archiveInboxItem = archiveInboxItem;
-const restoreInboxItem = (id) => {
-    (0, exports.getDb)().prepare("UPDATE inbox_items SET archived_at=NULL, archived_by=NULL WHERE id=?").run(id);
+const restoreInboxItem = async (id) => {
+    await getPool().query('UPDATE inbox_items SET archived_at=NULL, archived_by=NULL WHERE id=$1', [id]);
 };
 exports.restoreInboxItem = restoreInboxItem;
-const createMediaAsset = (a) => {
-    (0, exports.getDb)().prepare(`INSERT INTO media_assets (id,studio_id,uploaded_by,filename,mime_type,file_size,storage_path,width,height,duration_s,tags,source_provider,source_id,source_hash)
-    VALUES (@id,@studio_id,@uploaded_by,@filename,@mime_type,@file_size,@storage_path,@width,@height,@duration_s,@tags,@source_provider,@source_id,@source_hash)`).run({
-        ...a,
-        source_provider: a.source_provider ?? null,
-        source_id: a.source_id ?? null,
-        source_hash: a.source_hash ?? null,
-    });
-    return (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE id=?').get(a.id);
+const createMediaAsset = async (a) => {
+    await getPool().query(`INSERT INTO media_assets (id,studio_id,uploaded_by,filename,mime_type,file_size,storage_path,width,height,duration_s,tags,source_provider,source_id,source_hash)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, [a.id, a.studio_id, a.uploaded_by, a.filename, a.mime_type, a.file_size, a.storage_path,
+        a.width, a.height, a.duration_s, a.tags,
+        a.source_provider ?? null, a.source_id ?? null, a.source_hash ?? null]);
+    return (await getPool().query('SELECT * FROM media_assets WHERE id=$1', [a.id])).rows[0];
 };
 exports.createMediaAsset = createMediaAsset;
-const getMediaAssets = (studioId, q, includeArchived = false) => {
+const getMediaAssets = async (studioId, q, includeArchived = false) => {
     if (q) {
+        const like = `%${q}%`;
         if (includeArchived)
-            return (0, exports.getDb)().prepare("SELECT * FROM media_assets WHERE studio_id=? AND (filename LIKE ? OR tags LIKE ?) ORDER BY created_at DESC").all(studioId, `%${q}%`, `%${q}%`);
-        return (0, exports.getDb)().prepare("SELECT * FROM media_assets WHERE studio_id=? AND archived_at IS NULL AND (filename LIKE ? OR tags LIKE ?) ORDER BY created_at DESC").all(studioId, `%${q}%`, `%${q}%`);
+            return (await getPool().query('SELECT * FROM media_assets WHERE studio_id=$1 AND (filename LIKE $2 OR tags LIKE $2) ORDER BY created_at DESC', [studioId, like])).rows;
+        return (await getPool().query('SELECT * FROM media_assets WHERE studio_id=$1 AND archived_at IS NULL AND (filename LIKE $2 OR tags LIKE $2) ORDER BY created_at DESC', [studioId, like])).rows;
     }
     if (includeArchived)
-        return (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? ORDER BY created_at DESC').all(studioId);
-    return (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? AND archived_at IS NULL ORDER BY created_at DESC').all(studioId);
+        return (await getPool().query('SELECT * FROM media_assets WHERE studio_id=$1 ORDER BY created_at DESC', [studioId])).rows;
+    return (await getPool().query('SELECT * FROM media_assets WHERE studio_id=$1 AND archived_at IS NULL ORDER BY created_at DESC', [studioId])).rows;
 };
 exports.getMediaAssets = getMediaAssets;
-const deleteMediaAsset = (id) => {
-    (0, exports.getDb)().prepare('DELETE FROM media_assets WHERE id=?').run(id);
+const deleteMediaAsset = async (id) => {
+    await getPool().query('DELETE FROM media_assets WHERE id=$1', [id]);
 };
 exports.deleteMediaAsset = deleteMediaAsset;
-const archiveMediaAsset = (id, actorId) => {
-    (0, exports.getDb)().prepare("UPDATE media_assets SET archived_at=datetime('now'), archived_by=? WHERE id=?").run(actorId, id);
+const archiveMediaAsset = async (id, actorId) => {
+    await getPool().query('UPDATE media_assets SET archived_at=NOW(), archived_by=$1 WHERE id=$2', [actorId, id]);
 };
 exports.archiveMediaAsset = archiveMediaAsset;
-const restoreMediaAsset = (id) => {
-    (0, exports.getDb)().prepare("UPDATE media_assets SET archived_at=NULL, archived_by=NULL WHERE id=?").run(id);
+const restoreMediaAsset = async (id) => {
+    await getPool().query('UPDATE media_assets SET archived_at=NULL, archived_by=NULL WHERE id=$1', [id]);
 };
 exports.restoreMediaAsset = restoreMediaAsset;
-const getMediaAssetBySource = (studioId, provider, sourceId) => (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? AND source_provider=? AND source_id=? LIMIT 1').get(studioId, provider, sourceId) ?? null;
+const getMediaAssetBySource = async (studioId, provider, sourceId) => (await getPool().query('SELECT * FROM media_assets WHERE studio_id=$1 AND source_provider=$2 AND source_id=$3 LIMIT 1', [studioId, provider, sourceId])).rows[0] ?? null;
 exports.getMediaAssetBySource = getMediaAssetBySource;
-const getMediaAssetByHash = (studioId, sourceHash) => (0, exports.getDb)().prepare('SELECT * FROM media_assets WHERE studio_id=? AND source_hash=? LIMIT 1').get(studioId, sourceHash) ?? null;
+const getMediaAssetByHash = async (studioId, sourceHash) => (await getPool().query('SELECT * FROM media_assets WHERE studio_id=$1 AND source_hash=$2 LIMIT 1', [studioId, sourceHash])).rows[0] ?? null;
 exports.getMediaAssetByHash = getMediaAssetByHash;
-const purgeArchivedContentOlderThan = (cutoffIso) => {
-    const db = (0, exports.getDb)();
-    const mediaRows = db.prepare("SELECT id, storage_path FROM media_assets WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)").all(cutoffIso);
+const purgeArchivedContentOlderThan = async (cutoffIso) => {
+    const pool = getPool();
+    const mediaRows = (await pool.query('SELECT id, storage_path FROM media_assets WHERE archived_at IS NOT NULL AND archived_at <= $1', [cutoffIso])).rows;
     let mediaDeleted = 0;
     if (mediaRows.length > 0) {
-        const placeholders = mediaRows.map(() => '?').join(',');
         const ids = mediaRows.map(r => r.id);
-        const mediaDelete = db.prepare(`DELETE FROM media_assets WHERE id IN (${placeholders})`).run(...ids);
-        mediaDeleted = mediaDelete.changes;
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+        const mediaDelete = await pool.query(`DELETE FROM media_assets WHERE id IN (${placeholders})`, ids);
+        mediaDeleted = mediaDelete.rowCount ?? 0;
     }
-    const postDelete = db.prepare("DELETE FROM posts WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)").run(cutoffIso);
-    const inboxDelete = db.prepare("DELETE FROM inbox_items WHERE archived_at IS NOT NULL AND archived_at <= datetime(?)").run(cutoffIso);
+    const postDelete = await pool.query('DELETE FROM posts WHERE archived_at IS NOT NULL AND archived_at <= $1', [cutoffIso]);
+    const inboxDelete = await pool.query('DELETE FROM inbox_items WHERE archived_at IS NOT NULL AND archived_at <= $1', [cutoffIso]);
     return {
-        postsDeleted: postDelete.changes,
-        inboxDeleted: inboxDelete.changes,
+        postsDeleted: postDelete.rowCount ?? 0,
+        inboxDeleted: inboxDelete.rowCount ?? 0,
         mediaDeleted,
         mediaStoragePaths: mediaRows.map(r => r.storage_path),
     };
 };
 exports.purgeArchivedContentOlderThan = purgeArchivedContentOlderThan;
-const getMember = (studioId, userId) => (0, exports.getDb)().prepare('SELECT * FROM studio_members WHERE studio_id=? AND user_id=?').get(studioId, userId) ?? null;
+const getMember = async (studioId, userId) => (await getPool().query('SELECT * FROM studio_members WHERE studio_id=$1 AND user_id=$2', [studioId, userId])).rows[0] ?? null;
 exports.getMember = getMember;
-const getMembersByStudio = (studioId) => (0, exports.getDb)().prepare('SELECT * FROM studio_members WHERE studio_id=? ORDER BY role, name').all(studioId);
+const getMembersByStudio = async (studioId) => (await getPool().query('SELECT * FROM studio_members WHERE studio_id=$1 ORDER BY role, name', [studioId])).rows;
 exports.getMembersByStudio = getMembersByStudio;
-const upsertMember = (m) => {
-    (0, exports.getDb)().prepare(`INSERT INTO studio_members (studio_id,user_id,email,name,role)
-    VALUES (@studio_id,@user_id,@email,@name,@role)
-    ON CONFLICT(studio_id,user_id) DO UPDATE SET email=excluded.email, name=excluded.name, role=excluded.role`).run(m);
+const upsertMember = async (m) => {
+    await getPool().query(`INSERT INTO studio_members (studio_id,user_id,email,name,role)
+    VALUES ($1,$2,$3,$4,$5)
+    ON CONFLICT(studio_id,user_id) DO UPDATE SET email=EXCLUDED.email, name=EXCLUDED.name, role=EXCLUDED.role`, [m.studio_id, m.user_id, m.email, m.name, m.role]);
 };
 exports.upsertMember = upsertMember;
-const removeMember = (studioId, userId) => {
-    (0, exports.getDb)().prepare('DELETE FROM studio_members WHERE studio_id=? AND user_id=?').run(studioId, userId);
+const removeMember = async (studioId, userId) => {
+    await getPool().query('DELETE FROM studio_members WHERE studio_id=$1 AND user_id=$2', [studioId, userId]);
 };
 exports.removeMember = removeMember;
-const ensureOwner = (studioId, userId, email, name) => {
-    if (!(0, exports.getMember)(studioId, userId)) {
-        (0, exports.upsertMember)({ studio_id: studioId, user_id: userId, email, name, role: 'owner', joined_at: new Date().toISOString() });
+const ensureOwner = async (studioId, userId, email, name) => {
+    const existing = await (0, exports.getMember)(studioId, userId);
+    if (!existing) {
+        await (0, exports.upsertMember)({ studio_id: studioId, user_id: userId, email, name, role: 'owner', joined_at: new Date().toISOString() });
     }
 };
 exports.ensureOwner = ensureOwner;
-const createApprovalRequest = (id, postId, requestedBy) => {
-    (0, exports.getDb)().prepare('INSERT INTO approval_requests (id,post_id,requested_by) VALUES (?,?,?)').run(id, postId, requestedBy);
-    return (0, exports.getDb)().prepare('SELECT * FROM approval_requests WHERE id=?').get(id);
+const createApprovalRequest = async (id, postId, requestedBy) => {
+    await getPool().query('INSERT INTO approval_requests (id,post_id,requested_by) VALUES ($1,$2,$3)', [id, postId, requestedBy]);
+    return (await getPool().query('SELECT * FROM approval_requests WHERE id=$1', [id])).rows[0];
 };
 exports.createApprovalRequest = createApprovalRequest;
-const resolveApproval = (id, status, reviewerId, note) => {
-    (0, exports.getDb)().prepare("UPDATE approval_requests SET status=?,reviewer_id=?,reviewer_note=?,resolved_at=datetime('now') WHERE id=?").run(status, reviewerId ?? null, note ?? null, id);
+const resolveApproval = async (id, status, reviewerId, note) => {
+    await getPool().query('UPDATE approval_requests SET status=$1,reviewer_id=$2,reviewer_note=$3,resolved_at=NOW() WHERE id=$4', [status, reviewerId ?? null, note ?? null, id]);
 };
 exports.resolveApproval = resolveApproval;
-const getPendingApproval = (postId) => (0, exports.getDb)().prepare("SELECT * FROM approval_requests WHERE post_id=? AND status='pending' ORDER BY created_at DESC LIMIT 1").get(postId) ?? null;
+const getPendingApproval = async (postId) => (await getPool().query("SELECT * FROM approval_requests WHERE post_id=$1 AND status='pending' ORDER BY created_at DESC LIMIT 1", [postId])).rows[0] ?? null;
 exports.getPendingApproval = getPendingApproval;
 // ─── Notifications ───────────────────────────────────────────────────────────
-const createNotification = (id, recipientId, studioId, type, title, body, link) => {
-    (0, exports.getDb)().prepare('INSERT INTO notifications (id,recipient_id,studio_id,type,title,body,link) VALUES (?,?,?,?,?,?,?)').run(id, recipientId, studioId, type, title, body ?? null, link ?? null);
+const createNotification = async (id, recipientId, studioId, type, title, body, link) => {
+    await getPool().query('INSERT INTO notifications (id,recipient_id,studio_id,type,title,body,link) VALUES ($1,$2,$3,$4,$5,$6,$7)', [id, recipientId, studioId, type, title, body ?? null, link ?? null]);
 };
 exports.createNotification = createNotification;
-const getNotifications = (recipientId, unreadOnly = false) => {
+const getNotifications = async (recipientId, unreadOnly = false) => {
     if (unreadOnly)
-        return (0, exports.getDb)().prepare("SELECT * FROM notifications WHERE recipient_id=? AND read=0 ORDER BY created_at DESC LIMIT 50").all(recipientId);
-    return (0, exports.getDb)().prepare("SELECT * FROM notifications WHERE recipient_id=? ORDER BY created_at DESC LIMIT 50").all(recipientId);
+        return (await getPool().query("SELECT * FROM notifications WHERE recipient_id=$1 AND read=0 ORDER BY created_at DESC LIMIT 50", [recipientId])).rows;
+    return (await getPool().query('SELECT * FROM notifications WHERE recipient_id=$1 ORDER BY created_at DESC LIMIT 50', [recipientId])).rows;
 };
 exports.getNotifications = getNotifications;
-const markNotificationsRead = (recipientId) => {
-    (0, exports.getDb)().prepare("UPDATE notifications SET read=1 WHERE recipient_id=?").run(recipientId);
+const markNotificationsRead = async (recipientId) => {
+    await getPool().query('UPDATE notifications SET read=1 WHERE recipient_id=$1', [recipientId]);
 };
 exports.markNotificationsRead = markNotificationsRead;
-const createRedditAssist = (r) => {
-    (0, exports.getDb)().prepare(`
+const createRedditAssist = async (r) => {
+    await getPool().query(`
     INSERT INTO reddit_assists (id, post_id, studio_id, requested_by, subreddit, title, body, status, handoff_note)
-    VALUES (@id, @post_id, @studio_id, @requested_by, @subreddit, @title, @body, 'handed_off', @handoff_note)
-  `).run(r);
-    return (0, exports.getDb)().prepare('SELECT * FROM reddit_assists WHERE id=?').get(r.id);
+    VALUES ($1, $2, $3, $4, $5, $6, $7, 'handed_off', $8)
+  `, [r.id, r.post_id, r.studio_id, r.requested_by, r.subreddit, r.title, r.body, r.handoff_note]);
+    return (await getPool().query('SELECT * FROM reddit_assists WHERE id=$1', [r.id])).rows[0];
 };
 exports.createRedditAssist = createRedditAssist;
-const getRedditAssistsByPost = (studioId, postId) => (0, exports.getDb)().prepare('SELECT * FROM reddit_assists WHERE studio_id=? AND post_id=? ORDER BY created_at DESC').all(studioId, postId);
+const getRedditAssistsByPost = async (studioId, postId) => (await getPool().query('SELECT * FROM reddit_assists WHERE studio_id=$1 AND post_id=$2 ORDER BY created_at DESC', [studioId, postId])).rows;
 exports.getRedditAssistsByPost = getRedditAssistsByPost;
-const markRedditAssistPublished = (id, publishUrl) => {
-    (0, exports.getDb)().prepare(`
-    UPDATE reddit_assists
-    SET status='published', publish_url=?, updated_at=datetime('now')
-    WHERE id=?
-  `).run(publishUrl, id);
+const markRedditAssistPublished = async (id, publishUrl) => {
+    await getPool().query("UPDATE reddit_assists SET status='published', publish_url=$1, updated_at=NOW() WHERE id=$2", [publishUrl, id]);
 };
 exports.markRedditAssistPublished = markRedditAssistPublished;
-const createTikTokAssist = (r) => {
-    (0, exports.getDb)().prepare(`
+const createTikTokAssist = async (r) => {
+    await getPool().query(`
     INSERT INTO tiktok_assists (id, post_id, studio_id, requested_by, caption, media_asset_id, status, handoff_note)
-    VALUES (@id, @post_id, @studio_id, @requested_by, @caption, @media_asset_id, 'handed_off', @handoff_note)
-  `).run(r);
-    return (0, exports.getDb)().prepare('SELECT * FROM tiktok_assists WHERE id=?').get(r.id);
+    VALUES ($1, $2, $3, $4, $5, $6, 'handed_off', $7)
+  `, [r.id, r.post_id, r.studio_id, r.requested_by, r.caption, r.media_asset_id, r.handoff_note]);
+    return (await getPool().query('SELECT * FROM tiktok_assists WHERE id=$1', [r.id])).rows[0];
 };
 exports.createTikTokAssist = createTikTokAssist;
-const getTikTokAssistsByPost = (studioId, postId) => (0, exports.getDb)().prepare('SELECT * FROM tiktok_assists WHERE studio_id=? AND post_id=? ORDER BY created_at DESC').all(studioId, postId);
+const getTikTokAssistsByPost = async (studioId, postId) => (await getPool().query('SELECT * FROM tiktok_assists WHERE studio_id=$1 AND post_id=$2 ORDER BY created_at DESC', [studioId, postId])).rows;
 exports.getTikTokAssistsByPost = getTikTokAssistsByPost;
-const markTikTokAssistPublished = (id, publishUrl) => {
-    (0, exports.getDb)().prepare(`
-    UPDATE tiktok_assists
-    SET status='published', publish_url=?, updated_at=datetime('now')
-    WHERE id=?
-  `).run(publishUrl, id);
+const markTikTokAssistPublished = async (id, publishUrl) => {
+    await getPool().query("UPDATE tiktok_assists SET status='published', publish_url=$1, updated_at=NOW() WHERE id=$2", [publishUrl, id]);
 };
 exports.markTikTokAssistPublished = markTikTokAssistPublished;
 // ─── Studio plans ────────────────────────────────────────────────────────────
-const getLocalStudioPlan = (studioId) => ((0, exports.getDb)().prepare('SELECT plan FROM studio_plans WHERE studio_id=?').get(studioId)?.plan) ?? null;
+const getLocalStudioPlan = async (studioId) => ((await getPool().query('SELECT plan FROM studio_plans WHERE studio_id=$1', [studioId])).rows[0]?.plan) ?? null;
 exports.getLocalStudioPlan = getLocalStudioPlan;
-const setLocalStudioPlan = (studioId, plan, setBy) => {
-    (0, exports.getDb)().prepare(`INSERT INTO studio_plans (studio_id, plan, set_by, set_at)
-    VALUES (?, ?, ?, datetime('now'))
-    ON CONFLICT(studio_id) DO UPDATE SET plan=excluded.plan, set_by=excluded.set_by, set_at=excluded.set_at`)
-        .run(studioId, plan, setBy ?? null);
+const setLocalStudioPlan = async (studioId, plan, setBy) => {
+    await getPool().query(`INSERT INTO studio_plans (studio_id, plan, set_by, set_at)
+    VALUES ($1, $2, $3, NOW())
+    ON CONFLICT(studio_id) DO UPDATE SET plan=EXCLUDED.plan, set_by=EXCLUDED.set_by, set_at=EXCLUDED.set_at`, [studioId, plan, setBy ?? null]);
 };
 exports.setLocalStudioPlan = setLocalStudioPlan;
 const normalizeOptional = (v) => {
@@ -619,8 +599,8 @@ const normalizeOptional = (v) => {
     const t = v.trim();
     return t ? t : null;
 };
-const getStudioIntegrationSettings = (studioId) => {
-    const row = (0, exports.getDb)().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId);
+const getStudioIntegrationSettings = async (studioId) => {
+    const row = (await getPool().query('SELECT * FROM studio_integration_settings WHERE studio_id=$1', [studioId])).rows[0];
     if (!row)
         return null;
     const decryptSafe = (value) => {
@@ -648,8 +628,8 @@ const getStudioIntegrationSettings = (studioId) => {
     };
 };
 exports.getStudioIntegrationSettings = getStudioIntegrationSettings;
-const getStudioIntegrationSettingsSummary = (studioId) => {
-    const row = (0, exports.getDb)().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId);
+const getStudioIntegrationSettingsSummary = async (studioId) => {
+    const row = (await getPool().query('SELECT * FROM studio_integration_settings WHERE studio_id=$1', [studioId])).rows[0];
     if (!row) {
         return {
             studio_id: studioId,
@@ -680,90 +660,69 @@ const getStudioIntegrationSettingsSummary = (studioId) => {
     };
 };
 exports.getStudioIntegrationSettingsSummary = getStudioIntegrationSettingsSummary;
-const upsertStudioIntegrationSettings = (studioId, updatedBy, input) => {
-    const existing = (0, exports.getDb)().prepare('SELECT * FROM studio_integration_settings WHERE studio_id=?').get(studioId);
+const upsertStudioIntegrationSettings = async (studioId, updatedBy, input) => {
+    const existing = (await getPool().query('SELECT * FROM studio_integration_settings WHERE studio_id=$1', [studioId])).rows[0];
     const nextLinkedInSecretEnc = input.linkedin_client_secret === undefined
         ? (existing?.linkedin_client_secret_enc ?? null)
         : (normalizeOptional(input.linkedin_client_secret) ? (0, crypto_1.encryptToken)(normalizeOptional(input.linkedin_client_secret)) : null);
     const nextMetaSecretEnc = input.meta_app_secret === undefined
         ? (existing?.meta_app_secret_enc ?? null)
         : (normalizeOptional(input.meta_app_secret) ? (0, crypto_1.encryptToken)(normalizeOptional(input.meta_app_secret)) : null);
-    (0, exports.getDb)().prepare(`
+    await getPool().query(`
     INSERT INTO studio_integration_settings (
-      studio_id,
-      linkedin_client_id,
-      linkedin_client_secret_enc,
-      linkedin_redirect_uri,
-      linkedin_scopes,
-      meta_app_id,
-      meta_app_secret_enc,
-      meta_redirect_uri,
-      meta_scopes,
-      updated_by,
-      updated_at
-    ) VALUES (
-      @studio_id,
-      @linkedin_client_id,
-      @linkedin_client_secret_enc,
-      @linkedin_redirect_uri,
-      @linkedin_scopes,
-      @meta_app_id,
-      @meta_app_secret_enc,
-      @meta_redirect_uri,
-      @meta_scopes,
-      @updated_by,
-      datetime('now')
-    )
+      studio_id, linkedin_client_id, linkedin_client_secret_enc, linkedin_redirect_uri,
+      linkedin_scopes, meta_app_id, meta_app_secret_enc, meta_redirect_uri, meta_scopes,
+      updated_by, updated_at
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
     ON CONFLICT(studio_id) DO UPDATE SET
-      linkedin_client_id=excluded.linkedin_client_id,
-      linkedin_client_secret_enc=excluded.linkedin_client_secret_enc,
-      linkedin_redirect_uri=excluded.linkedin_redirect_uri,
-      linkedin_scopes=excluded.linkedin_scopes,
-      meta_app_id=excluded.meta_app_id,
-      meta_app_secret_enc=excluded.meta_app_secret_enc,
-      meta_redirect_uri=excluded.meta_redirect_uri,
-      meta_scopes=excluded.meta_scopes,
-      updated_by=excluded.updated_by,
-      updated_at=excluded.updated_at
-  `).run({
-        studio_id: studioId,
-        linkedin_client_id: normalizeOptional(input.linkedin_client_id) ?? existing?.linkedin_client_id ?? null,
-        linkedin_client_secret_enc: nextLinkedInSecretEnc,
-        linkedin_redirect_uri: normalizeOptional(input.linkedin_redirect_uri) ?? existing?.linkedin_redirect_uri ?? null,
-        linkedin_scopes: normalizeOptional(input.linkedin_scopes) ?? existing?.linkedin_scopes ?? null,
-        meta_app_id: normalizeOptional(input.meta_app_id) ?? existing?.meta_app_id ?? null,
-        meta_app_secret_enc: nextMetaSecretEnc,
-        meta_redirect_uri: normalizeOptional(input.meta_redirect_uri) ?? existing?.meta_redirect_uri ?? null,
-        meta_scopes: normalizeOptional(input.meta_scopes) ?? existing?.meta_scopes ?? null,
-        updated_by: updatedBy,
-    });
+      linkedin_client_id=EXCLUDED.linkedin_client_id,
+      linkedin_client_secret_enc=EXCLUDED.linkedin_client_secret_enc,
+      linkedin_redirect_uri=EXCLUDED.linkedin_redirect_uri,
+      linkedin_scopes=EXCLUDED.linkedin_scopes,
+      meta_app_id=EXCLUDED.meta_app_id,
+      meta_app_secret_enc=EXCLUDED.meta_app_secret_enc,
+      meta_redirect_uri=EXCLUDED.meta_redirect_uri,
+      meta_scopes=EXCLUDED.meta_scopes,
+      updated_by=EXCLUDED.updated_by,
+      updated_at=EXCLUDED.updated_at
+  `, [
+        studioId,
+        normalizeOptional(input.linkedin_client_id) ?? existing?.linkedin_client_id ?? null,
+        nextLinkedInSecretEnc,
+        normalizeOptional(input.linkedin_redirect_uri) ?? existing?.linkedin_redirect_uri ?? null,
+        normalizeOptional(input.linkedin_scopes) ?? existing?.linkedin_scopes ?? null,
+        normalizeOptional(input.meta_app_id) ?? existing?.meta_app_id ?? null,
+        nextMetaSecretEnc,
+        normalizeOptional(input.meta_redirect_uri) ?? existing?.meta_redirect_uri ?? null,
+        normalizeOptional(input.meta_scopes) ?? existing?.meta_scopes ?? null,
+        updatedBy,
+    ]);
 };
 exports.upsertStudioIntegrationSettings = upsertStudioIntegrationSettings;
-const getUserByEmail = (email) => (0, exports.getDb)().prepare('SELECT * FROM users WHERE email=?').get(email.toLowerCase()) ?? null;
+const getUserByEmail = async (email) => (await getPool().query('SELECT * FROM users WHERE email=$1', [email.toLowerCase()])).rows[0] ?? null;
 exports.getUserByEmail = getUserByEmail;
-const getUserById = (id) => (0, exports.getDb)().prepare('SELECT * FROM users WHERE id=?').get(id) ?? null;
+const getUserById = async (id) => (await getPool().query('SELECT * FROM users WHERE id=$1', [id])).rows[0] ?? null;
 exports.getUserById = getUserById;
-const createUser = (u) => {
+const createUser = async (u) => {
     const { v4: uuidv4 } = require('uuid');
     const id = uuidv4();
-    (0, exports.getDb)().prepare(`INSERT INTO users (id, email, name, google_sub, role, status)
-    VALUES (@id, @email, @name, @google_sub, @role, @status)`)
-        .run({ id, email: u.email.toLowerCase(), name: u.name, google_sub: u.google_sub ?? null, role: u.role, status: u.status });
-    return (0, exports.getUserById)(id);
+    await getPool().query('INSERT INTO users (id, email, name, google_sub, role, status) VALUES ($1, $2, $3, $4, $5, $6)', [id, u.email.toLowerCase(), u.name, u.google_sub ?? null, u.role, u.status]);
+    return (await (0, exports.getUserById)(id));
 };
 exports.createUser = createUser;
-const updateUser = (id, fields) => {
-    const cols = Object.entries(fields).filter(([, v]) => v !== undefined).map(([k]) => `${k}=@${k}`).join(', ');
-    if (!cols)
+const updateUser = async (id, fields) => {
+    const entries = Object.entries(fields).filter(([, v]) => v !== undefined);
+    if (!entries.length)
         return;
-    (0, exports.getDb)().prepare(`UPDATE users SET ${cols} WHERE id=@id`).run({ ...fields, id });
+    const setClauses = entries.map(([k], i) => `${k}=$${i + 1}`).join(', ');
+    const values = entries.map(([, v]) => v);
+    await getPool().query(`UPDATE users SET ${setClauses} WHERE id=$${values.length + 1}`, [...values, id]);
 };
 exports.updateUser = updateUser;
 // ─── Audit ───────────────────────────────────────────────────────────────────
-const audit = (studioId, actorId, action, entityType, entityId, detail) => {
+const audit = async (studioId, actorId, action, entityType, entityId, detail) => {
     const { v4: uuidv4 } = require('uuid');
-    (0, exports.getDb)().prepare('INSERT INTO audit_events (id,studio_id,actor_id,action,entity_type,entity_id,detail) VALUES (?,?,?,?,?,?,?)')
-        .run(uuidv4(), studioId, actorId, action, entityType, entityId, JSON.stringify(detail ?? {}));
+    await getPool().query('INSERT INTO audit_events (id,studio_id,actor_id,action,entity_type,entity_id,detail) VALUES ($1,$2,$3,$4,$5,$6,$7)', [uuidv4(), studioId, actorId, action, entityType, entityId, JSON.stringify(detail ?? {})]);
 };
 exports.audit = audit;
 //# sourceMappingURL=db.js.map

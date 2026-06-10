@@ -8,6 +8,7 @@ const google_auth_library_1 = require("google-auth-library");
 const dotenv_1 = __importDefault(require("dotenv"));
 const auth_1 = require("../utils/auth");
 const db_1 = require("../utils/db");
+const asyncHandler_1 = require("../utils/asyncHandler");
 dotenv_1.default.config();
 const router = (0, express_1.Router)();
 const ADMIN_EMAILS = new Set((process.env.AUTH_ADMIN_EMAILS || '')
@@ -18,9 +19,7 @@ const parseList = (raw) => raw
     .split(',')
     .map(v => v.trim())
     .filter(Boolean);
-const DEFAULT_GOOGLE_CLIENT_ID = '407954380639-barlsc8co4l6ts5tjcll1sho5djdd72j.apps.googleusercontent.com';
 const GOOGLE_CLIENT_IDS = Array.from(new Set([
-    DEFAULT_GOOGLE_CLIENT_ID,
     ...parseList(process.env.GOOGLE_CLIENT_IDS || ''),
     ...(process.env.GOOGLE_CLIENT_ID ? [process.env.GOOGLE_CLIENT_ID.trim()] : []),
 ])).filter(Boolean);
@@ -37,21 +36,22 @@ const readJwtAudience = (token) => {
         return null;
     }
 };
-const ensureAdmins = () => {
+const ensureAdmins = async () => {
     for (const email of ADMIN_EMAILS) {
         try {
-            const existing = (0, db_1.getUserByEmail)(email);
+            const existing = await (0, db_1.getUserByEmail)(email);
             if (!existing) {
-                (0, db_1.createUser)({ email, name: '', status: 'approved', role: 'admin' });
+                await (0, db_1.createUser)({ email, name: '', status: 'approved', role: 'admin' });
             }
             else if (existing.status !== 'approved' || existing.role !== 'admin') {
-                (0, db_1.updateUser)(existing.id, { status: 'approved', role: 'admin' });
+                await (0, db_1.updateUser)(existing.id, { status: 'approved', role: 'admin' });
             }
         }
         catch { /* ignore if db not ready */ }
     }
 };
-ensureAdmins();
+// Kick off admin seeding after server starts (non-blocking)
+setImmediate(() => { ensureAdmins().catch(() => { }); });
 // GET /api/auth/csrf — issue CSRF token
 router.get('/csrf', (req, res) => {
     const csrfToken = (0, auth_1.issueCsrfToken)(req, res);
@@ -86,7 +86,7 @@ router.get('/me', (req, res) => {
     res.status(401).json({ authEnabled: true, authenticated: false });
 });
 // POST /api/auth/google — verify Google ID token, issue session
-router.post('/google', async (req, res) => {
+router.post('/google', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     if (!(0, auth_1.isAuthEnabled)()) {
         res.status(400).json({ error: 'Auth is disabled in this environment.' });
         return;
@@ -111,13 +111,13 @@ router.post('/google', async (req, res) => {
         const name = payload.name || '';
         const googleSub = payload.sub || '';
         const isAdmin = ADMIN_EMAILS.has(email);
-        let user = (0, db_1.getUserByEmail)(email);
+        let user = await (0, db_1.getUserByEmail)(email);
         if (!user) {
-            user = (0, db_1.createUser)({ email, name, google_sub: googleSub, status: isAdmin ? 'approved' : 'pending', role: isAdmin ? 'admin' : 'user' });
+            user = await (0, db_1.createUser)({ email, name, google_sub: googleSub, status: isAdmin ? 'approved' : 'pending', role: isAdmin ? 'admin' : 'user' });
         }
         else {
-            (0, db_1.updateUser)(user.id, { name: name || user.name, google_sub: (googleSub || user.google_sub) ?? undefined });
-            user = (0, db_1.getUserByEmail)(email);
+            await (0, db_1.updateUser)(user.id, { name: name || user.name, google_sub: (googleSub || user.google_sub) ?? undefined });
+            user = (await (0, db_1.getUserByEmail)(email));
         }
         if (user.status === 'pending') {
             res.status(403).json({ status: 'pending', error: 'Access request submitted. An admin must approve your account.' });
@@ -127,7 +127,7 @@ router.post('/google', async (req, res) => {
             res.status(403).json({ status: 'denied', error: 'Access was denied by an admin.' });
             return;
         }
-        (0, db_1.updateUser)(user.id, { last_login_at: new Date().toISOString() });
+        await (0, db_1.updateUser)(user.id, { last_login_at: new Date().toISOString() });
         const mfUser = {
             userId: user.id,
             email: user.email,
@@ -152,6 +152,10 @@ router.post('/google', async (req, res) => {
             : message;
         res.status(401).json({ error: 'Google sign-in failed.', detail });
     }
+}));
+// GET /api/auth/config — public config for the login page
+router.get('/config', (_req, res) => {
+    res.json({ googleClientId: GOOGLE_CLIENT_IDS[0] || null });
 });
 // POST /api/auth/logout
 router.post('/logout', (req, res) => {

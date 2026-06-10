@@ -54,7 +54,7 @@ const getBudgetFoxUrl = () => {
 const budgetFoxCache = new Map();
 const getStudioPlan = async (studioId) => {
     // 1. Per-studio local override (admin-set in MediaFox DB)
-    const localPlan = (0, db_1.getLocalStudioPlan)(studioId);
+    const localPlan = await (0, db_1.getLocalStudioPlan)(studioId);
     if (localPlan && exports.MEDIAFOX_LIMITS[localPlan])
         return localPlan;
     // 2. Global env var override (e.g. MEDIAFOX_PLAN=pro in fly.toml)
@@ -87,7 +87,8 @@ exports.getLimits = getLimits;
 const checkAccountLimit = async (studioId) => {
     const plan = await (0, exports.getStudioPlan)(studioId);
     const limits = (0, exports.getLimits)(plan);
-    const current = (0, db_1.getAccountsByStudio)(studioId).length;
+    const accounts = await (0, db_1.getAccountsByStudio)(studioId);
+    const current = accounts.length;
     const allowed = limits.maxConnectedAccounts === null || current < limits.maxConnectedAccounts;
     return { allowed, current, max: limits.maxConnectedAccounts, plan };
 };
@@ -98,9 +99,8 @@ const checkPostQuota = async (studioId) => {
     const monthStart = new Date();
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
-    const current = (0, db_1.getDb)()
-        .prepare(`SELECT COUNT(*) as n FROM posts WHERE studio_id=? AND status IN ('scheduled','publishing','published') AND created_at >= ?`)
-        .get(studioId, monthStart.toISOString()).n;
+    const { rows } = await (0, db_1.getPool)().query(`SELECT COUNT(*) as n FROM posts WHERE studio_id=$1 AND status = ANY($2::text[]) AND created_at >= $3`, [studioId, ['scheduled', 'publishing', 'published'], monthStart.toISOString()]);
+    const current = Number(rows[0].n);
     const allowed = limits.maxScheduledPostsPerMonth === null || current < limits.maxScheduledPostsPerMonth;
     return { allowed, current, max: limits.maxScheduledPostsPerMonth, plan };
 };

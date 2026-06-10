@@ -6,6 +6,6 @@ export interface RateLimitStatus {
     remaining: number;
     resetsAt: string;
 }
-export declare const checkRateLimit: (accountId: string, platform: Platform) => RateLimitStatus;
-export declare const consumeRateLimit: (accountId: string, platform: Platform, count?: number) => void;
+export declare const checkRateLimit: (accountId: string, platform: Platform) => Promise<RateLimitStatus>;
+export declare const consumeRateLimit: (accountId: string, platform: Platform, count?: number) => Promise<void>;
 //# sourceMappingURL=rateLimit.d.ts.map

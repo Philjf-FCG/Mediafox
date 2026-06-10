@@ -15,7 +15,7 @@ const getChannelId = (account) => {
     return extra.channel_id;
 };
 const publishToSlack = async (account, text, blocks, scheduledAt) => {
-    const rl = (0, rateLimit_1.checkRateLimit)(account.id, 'slack');
+    const rl = await (0, rateLimit_1.checkRateLimit)(account.id, 'slack');
     if (!rl.allowed)
         throw new Error(`Slack rate limit reached. Resets at ${rl.resetsAt}`);
     const token = getToken(account);
@@ -29,7 +29,7 @@ const publishToSlack = async (account, text, blocks, scheduledAt) => {
     const res = await axios_1.default.post(`https://slack.com/api/${endpoint}`, body, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 });
     if (!res.data.ok)
         throw new Error(`Slack API error: ${res.data.error}`);
-    (0, rateLimit_1.consumeRateLimit)(account.id, 'slack');
+    await (0, rateLimit_1.consumeRateLimit)(account.id, 'slack');
     return { platformPostId: res.data.ts ?? res.data.scheduled_message_id ?? 'unknown' };
 };
 exports.publishToSlack = publishToSlack;
@@ -39,7 +39,7 @@ const replyToSlackMessage = async (account, threadTs, text) => {
     const res = await axios_1.default.post('https://slack.com/api/chat.postMessage', { channel, text, thread_ts: threadTs }, { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, timeout: 15000 });
     if (!res.data.ok)
         throw new Error(`Slack reply error: ${res.data.error}`);
-    (0, rateLimit_1.consumeRateLimit)(account.id, 'slack');
+    await (0, rateLimit_1.consumeRateLimit)(account.id, 'slack');
 };
 exports.replyToSlackMessage = replyToSlackMessage;
 const fetchSlackChannels = async (botToken) => {

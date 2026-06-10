@@ -82,13 +82,13 @@ const refreshIfNeeded = async (agent, account) => {
         if (!res.ok)
             throw new Error('Bluesky token refresh failed');
         const data = await res.json();
-        (0, db_1.updateAccountTokens)(account.id, (0, crypto_1.encryptToken)(data.accessJwt), (0, crypto_1.encryptToken)(data.refreshJwt), null);
+        void (0, db_1.updateAccountTokens)(account.id, (0, crypto_1.encryptToken)(data.accessJwt), (0, crypto_1.encryptToken)(data.refreshJwt), null);
         agent.session.accessJwt = data.accessJwt;
         agent.session.refreshJwt = data.refreshJwt;
     }
 };
 const publishToBluesky = async (account, body, mediaIds, mediaStoragePath) => {
-    const rl = (0, rateLimit_1.checkRateLimit)(account.id, 'bluesky');
+    const rl = await (0, rateLimit_1.checkRateLimit)(account.id, 'bluesky');
     if (!rl.allowed)
         throw new Error(`Bluesky rate limit reached. Resets at ${rl.resetsAt}`);
     const agent = await getAgent(account);
@@ -104,7 +104,7 @@ const publishToBluesky = async (account, body, mediaIds, mediaStoragePath) => {
                 const filePath = path.join(mediaStoragePath, mediaId);
                 const data = await fs.readFile(filePath);
                 const uploadRes = await agent.uploadBlob(new Uint8Array(data), { encoding: 'image/jpeg' });
-                (0, rateLimit_1.consumeRateLimit)(account.id, 'bluesky');
+                await (0, rateLimit_1.consumeRateLimit)(account.id, 'bluesky');
                 images.push({ image: uploadRes.data.blob, alt: '' });
             }
             catch {
@@ -120,8 +120,8 @@ const publishToBluesky = async (account, body, mediaIds, mediaStoragePath) => {
         post.embed = { $type: 'app.bsky.embed.images', images };
     }
     const res = await agent.post(post);
-    (0, rateLimit_1.consumeRateLimit)(account.id, 'bluesky');
-    (0, db_1.updateAccountStatus)(account.id, 'active');
+    await (0, rateLimit_1.consumeRateLimit)(account.id, 'bluesky');
+    await (0, db_1.updateAccountStatus)(account.id, 'active');
     return { platformPostId: res.uri };
 };
 exports.publishToBluesky = publishToBluesky;
@@ -129,7 +129,7 @@ const getBlueskyNotifications = async (account, cursor) => {
     const agent = await getAgent(account);
     await refreshIfNeeded(agent, account);
     const res = await agent.listNotifications({ limit: 50, cursor });
-    (0, rateLimit_1.consumeRateLimit)(account.id, 'bluesky');
+    await (0, rateLimit_1.consumeRateLimit)(account.id, 'bluesky');
     return {
         items: res.data.notifications,
         cursor: res.data.cursor,

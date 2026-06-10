@@ -38,53 +38,56 @@ const uuid_1 = require("uuid");
 const db_1 = require("../utils/db");
 const queue_1 = require("../scheduler/queue");
 const planGating_1 = require("../utils/planGating");
+const asyncHandler_1 = require("../utils/asyncHandler");
 const router = (0, express_1.Router)();
-const requireRole = (req, res, ...roles) => {
-    const member = (0, db_1.getMember)(req.studioId, req.mediafoxUser.userId);
+const requireRole = async (req, res, ...roles) => {
+    const member = await (0, db_1.getMember)(req.studioId, req.mediafoxUser.userId);
     if (!member || !roles.includes(member.role)) {
         res.status(403).json({ error: `Requires one of: ${roles.join(', ')}` });
         return false;
     }
     return true;
 };
-const postWithVariants = (postId) => {
-    const post = (0, db_1.getPostById)(postId);
+const postWithVariants = async (postId) => {
+    const post = await (0, db_1.getPostById)(postId);
     if (!post)
         return null;
-    return { ...post, variants: (0, db_1.getVariantsByPost)(postId) };
+    return { ...post, variants: await (0, db_1.getVariantsByPost)(postId) };
 };
 // ─── List ─────────────────────────────────────────────────────────────────────
-router.get('/', (req, res) => {
+router.get('/', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { status, include_archived } = req.query;
     const includeArchived = include_archived === '1' || include_archived === 'true';
-    const posts = (0, db_1.getPostsByStudio)(req.studioId, status, includeArchived).map(p => ({
-        ...p, variants: (0, db_1.getVariantsByPost)(p.id),
-    }));
+    const postList = await (0, db_1.getPostsByStudio)(req.studioId, status, includeArchived);
+    const posts = await Promise.all(postList.map(async (p) => ({
+        ...p, variants: await (0, db_1.getVariantsByPost)(p.id),
+    })));
     res.json({ posts });
-});
+}));
 // ─── Calendar range ───────────────────────────────────────────────────────────
-router.get('/calendar', (req, res) => {
+router.get('/calendar', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { from, to, include_archived } = req.query;
     if (!from || !to) {
         res.status(400).json({ error: 'from and to are required' });
         return;
     }
     const includeArchived = include_archived === '1' || include_archived === 'true';
-    const posts = (0, db_1.getPostsInRange)(req.studioId, from, to, includeArchived).map(p => ({ ...p, variants: (0, db_1.getVariantsByPost)(p.id) }));
+    const postList = await (0, db_1.getPostsInRange)(req.studioId, from, to, includeArchived);
+    const posts = await Promise.all(postList.map(async (p) => ({ ...p, variants: await (0, db_1.getVariantsByPost)(p.id) })));
     res.json({ posts });
-});
+}));
 // ─── Create draft ─────────────────────────────────────────────────────────────
-router.post('/', (req, res) => {
+router.post('/', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { title, variants } = req.body;
-    const post = (0, db_1.createPost)({ id: (0, uuid_1.v4)(), studio_id: req.studioId, author_user_id: req.mediafoxUser.userId, title: title ?? null });
-    const created = (variants ?? []).map(v => (0, db_1.createPostVariant)({ id: (0, uuid_1.v4)(), post_id: post.id, account_id: v.account_id, body: v.body, media_ids: JSON.stringify(v.media_ids ?? []) }));
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'create', 'post', post.id);
+    const post = await (0, db_1.createPost)({ id: (0, uuid_1.v4)(), studio_id: req.studioId, author_user_id: req.mediafoxUser.userId, title: title ?? null });
+    const created = await Promise.all((variants ?? []).map(v => (0, db_1.createPostVariant)({ id: (0, uuid_1.v4)(), post_id: post.id, account_id: v.account_id, body: v.body, media_ids: JSON.stringify(v.media_ids ?? []) })));
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'create', 'post', post.id);
     res.status(201).json({ post: { ...post, variants: created } });
-});
+}));
 // ─── Get one ──────────────────────────────────────────────────────────────────
-router.get('/:id', (req, res) => {
+router.get('/:id', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const includeArchived = req.query.include_archived === '1' || req.query.include_archived === 'true';
-    const post = postWithVariants(req.params.id);
+    const post = await postWithVariants(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -94,10 +97,10 @@ router.get('/:id', (req, res) => {
         return;
     }
     res.json({ post });
-});
+}));
 // ─── Update ───────────────────────────────────────────────────────────────────
-router.put('/:id', (req, res) => {
-    const post = (0, db_1.getPostById)(req.params.id);
+router.put('/:id', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -112,27 +115,25 @@ router.put('/:id', (req, res) => {
     }
     const { title, scheduled_at, variants } = req.body;
     if (title !== undefined || scheduled_at !== undefined)
-        (0, db_1.updatePost)(post.id, { title, scheduled_at });
+        await (0, db_1.updatePost)(post.id, { title, scheduled_at });
     if (variants) {
         for (const v of variants) {
             if (v.id) {
-                (async () => {
-                    const { updateVariant } = await Promise.resolve().then(() => __importStar(require('../utils/db')));
-                    updateVariant(v.id, { body: v.body, media_ids: JSON.stringify(v.media_ids ?? []) });
-                })();
+                const { updateVariant } = await Promise.resolve().then(() => __importStar(require('../utils/db')));
+                await updateVariant(v.id, { body: v.body, media_ids: JSON.stringify(v.media_ids ?? []) });
             }
             else {
-                (0, db_1.createPostVariant)({ id: (0, uuid_1.v4)(), post_id: post.id, account_id: v.account_id, body: v.body, media_ids: JSON.stringify(v.media_ids ?? []) });
+                await (0, db_1.createPostVariant)({ id: (0, uuid_1.v4)(), post_id: post.id, account_id: v.account_id, body: v.body, media_ids: JSON.stringify(v.media_ids ?? []) });
             }
         }
     }
-    res.json({ post: postWithVariants(post.id) });
-});
+    res.json({ post: await postWithVariants(post.id) });
+}));
 // ─── Publish immediately ──────────────────────────────────────────────────────
-router.post('/:id/publish', async (req, res) => {
-    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+router.post('/:id/publish', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    if (!await requireRole(req, res, 'owner', 'manager', 'editor'))
         return;
-    const post = (0, db_1.getPostById)(req.params.id);
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -145,18 +146,18 @@ router.post('/:id/publish', async (req, res) => {
         res.status(409).json({ error: 'Post is not in a publishable state' });
         return;
     }
-    (0, db_1.updatePost)(post.id, { status: 'scheduled', scheduled_at: new Date().toISOString() });
-    const variants = (0, db_1.getVariantsByPost)(post.id);
+    await (0, db_1.updatePost)(post.id, { status: 'scheduled', scheduled_at: new Date().toISOString() });
+    const variants = await (0, db_1.getVariantsByPost)(post.id);
     for (const v of variants)
-        (0, queue_1.schedulePostNow)(post.id, v.id);
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'publish', 'post', post.id);
-    res.json({ post: postWithVariants(post.id) });
-});
+        await (0, queue_1.schedulePostNow)(post.id, v.id);
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'publish', 'post', post.id);
+    res.json({ post: await postWithVariants(post.id) });
+}));
 // ─── Schedule ─────────────────────────────────────────────────────────────────
-router.post('/:id/schedule', async (req, res) => {
-    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+router.post('/:id/schedule', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    if (!await requireRole(req, res, 'owner', 'manager', 'editor'))
         return;
-    const post = (0, db_1.getPostById)(req.params.id);
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -188,16 +189,16 @@ router.post('/:id/schedule', async (req, res) => {
         res.status(400).json({ error: 'scheduled_at must be in the future' });
         return;
     }
-    (0, db_1.updatePost)(post.id, { status: 'scheduled', scheduled_at });
-    const variants = (0, db_1.getVariantsByPost)(post.id);
+    await (0, db_1.updatePost)(post.id, { status: 'scheduled', scheduled_at });
+    const variants = await (0, db_1.getVariantsByPost)(post.id);
     for (const v of variants)
-        (0, queue_1.schedulePost)(post.id, v.id, fireAt);
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'schedule', 'post', post.id, { scheduled_at });
-    res.json({ post: postWithVariants(post.id) });
-});
+        await (0, queue_1.schedulePost)(post.id, v.id, fireAt);
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'schedule', 'post', post.id, { scheduled_at });
+    res.json({ post: await postWithVariants(post.id) });
+}));
 // ─── Submit for approval ──────────────────────────────────────────────────────
-router.post('/:id/submit', (req, res) => {
-    const post = (0, db_1.getPostById)(req.params.id);
+router.post('/:id/submit', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -210,21 +211,21 @@ router.post('/:id/submit', (req, res) => {
         res.status(409).json({ error: 'Only drafts can be submitted' });
         return;
     }
-    if ((0, db_1.getPendingApproval)(post.id)) {
+    if (await (0, db_1.getPendingApproval)(post.id)) {
         res.status(409).json({ error: 'Already pending approval' });
         return;
     }
-    (0, db_1.updatePost)(post.id, { status: 'pending_approval' });
+    await (0, db_1.updatePost)(post.id, { status: 'pending_approval' });
     const approvalId = (0, uuid_1.v4)();
-    (0, db_1.createApprovalRequest)(approvalId, post.id, req.mediafoxUser.userId);
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'submit_approval', 'post', post.id);
-    res.json({ post: postWithVariants(post.id), approval_id: approvalId });
-});
+    await (0, db_1.createApprovalRequest)(approvalId, post.id, req.mediafoxUser.userId);
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'submit_approval', 'post', post.id);
+    res.json({ post: await postWithVariants(post.id), approval_id: approvalId });
+}));
 // ─── Approve ──────────────────────────────────────────────────────────────────
-router.post('/:id/approve', (req, res) => {
-    if (!requireRole(req, res, 'owner', 'manager'))
+router.post('/:id/approve', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    if (!await requireRole(req, res, 'owner', 'manager'))
         return;
-    const post = (0, db_1.getPostById)(req.params.id);
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -233,30 +234,34 @@ router.post('/:id/approve', (req, res) => {
         res.status(409).json({ error: 'Cannot approve an archived post' });
         return;
     }
-    const approval = (0, db_1.getPendingApproval)(post.id);
+    const approval = await (0, db_1.getPendingApproval)(post.id);
     if (!approval) {
         res.status(404).json({ error: 'No pending approval for this post' });
         return;
     }
     const { note, scheduled_at } = req.body;
-    (0, db_1.resolveApproval)(approval.id, 'approved', req.mediafoxUser.userId, note);
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'approve', 'post', post.id);
+    await (0, db_1.resolveApproval)(approval.id, 'approved', req.mediafoxUser.userId, note);
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'approve', 'post', post.id);
     if (scheduled_at) {
         const fireAt = new Date(scheduled_at);
-        (0, db_1.updatePost)(post.id, { status: 'scheduled', scheduled_at });
-        (0, db_1.getVariantsByPost)(post.id).forEach(v => (0, queue_1.schedulePost)(post.id, v.id, fireAt));
+        await (0, db_1.updatePost)(post.id, { status: 'scheduled', scheduled_at });
+        const variants = await (0, db_1.getVariantsByPost)(post.id);
+        for (const v of variants)
+            await (0, queue_1.schedulePost)(post.id, v.id, fireAt);
     }
     else {
-        (0, db_1.updatePost)(post.id, { status: 'scheduled', scheduled_at: new Date().toISOString() });
-        (0, db_1.getVariantsByPost)(post.id).forEach(v => (0, queue_1.schedulePostNow)(post.id, v.id));
+        await (0, db_1.updatePost)(post.id, { status: 'scheduled', scheduled_at: new Date().toISOString() });
+        const variants = await (0, db_1.getVariantsByPost)(post.id);
+        for (const v of variants)
+            await (0, queue_1.schedulePostNow)(post.id, v.id);
     }
-    res.json({ post: postWithVariants(post.id) });
-});
+    res.json({ post: await postWithVariants(post.id) });
+}));
 // ─── Reject ───────────────────────────────────────────────────────────────────
-router.post('/:id/reject', (req, res) => {
-    if (!requireRole(req, res, 'owner', 'manager'))
+router.post('/:id/reject', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    if (!await requireRole(req, res, 'owner', 'manager'))
         return;
-    const post = (0, db_1.getPostById)(req.params.id);
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -265,7 +270,7 @@ router.post('/:id/reject', (req, res) => {
         res.status(409).json({ error: 'Cannot reject an archived post' });
         return;
     }
-    const approval = (0, db_1.getPendingApproval)(post.id);
+    const approval = await (0, db_1.getPendingApproval)(post.id);
     if (!approval) {
         res.status(404).json({ error: 'No pending approval' });
         return;
@@ -275,14 +280,14 @@ router.post('/:id/reject', (req, res) => {
         res.status(400).json({ error: 'note is required when rejecting' });
         return;
     }
-    (0, db_1.resolveApproval)(approval.id, 'rejected', req.mediafoxUser.userId, note);
-    (0, db_1.updatePost)(post.id, { status: 'draft' });
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reject', 'post', post.id, { note });
-    res.json({ post: postWithVariants(post.id) });
-});
+    await (0, db_1.resolveApproval)(approval.id, 'rejected', req.mediafoxUser.userId, note);
+    await (0, db_1.updatePost)(post.id, { status: 'draft' });
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reject', 'post', post.id, { note });
+    res.json({ post: await postWithVariants(post.id) });
+}));
 // ─── Duplicate ────────────────────────────────────────────────────────────────
-router.post('/:id/duplicate', (req, res) => {
-    const post = (0, db_1.getPostById)(req.params.id);
+router.post('/:id/duplicate', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -291,22 +296,22 @@ router.post('/:id/duplicate', (req, res) => {
         res.status(409).json({ error: 'Cannot duplicate an archived post' });
         return;
     }
-    const newPost = (0, db_1.createPost)({
+    const newPost = await (0, db_1.createPost)({
         id: (0, uuid_1.v4)(),
         studio_id: req.studioId,
         author_user_id: req.mediafoxUser.userId,
         title: post.title ? `Copy of ${post.title}` : null,
     });
-    const variants = (0, db_1.getVariantsByPost)(post.id);
+    const variants = await (0, db_1.getVariantsByPost)(post.id);
     for (const v of variants) {
-        (0, db_1.createPostVariant)({ id: (0, uuid_1.v4)(), post_id: newPost.id, account_id: v.account_id, body: v.body, media_ids: v.media_ids });
+        await (0, db_1.createPostVariant)({ id: (0, uuid_1.v4)(), post_id: newPost.id, account_id: v.account_id, body: v.body, media_ids: v.media_ids });
     }
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'duplicate', 'post', newPost.id, { source_id: post.id });
-    res.status(201).json({ post: postWithVariants(newPost.id) });
-});
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'duplicate', 'post', newPost.id, { source_id: post.id });
+    res.status(201).json({ post: await postWithVariants(newPost.id) });
+}));
 // ─── Cancel ───────────────────────────────────────────────────────────────────
-router.delete('/:id', (req, res) => {
-    const post = (0, db_1.getPostById)(req.params.id);
+router.delete('/:id', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -316,35 +321,35 @@ router.delete('/:id', (req, res) => {
         return;
     }
     if (post.status !== 'published')
-        (0, db_1.updatePost)(post.id, { status: 'cancelled' });
-    (0, db_1.archivePost)(post.id, req.mediafoxUser.userId);
-    getDb().prepare("UPDATE post_queue SET status='dead' WHERE post_variant_id IN (SELECT id FROM post_variants WHERE post_id=?) AND status='pending'").run(post.id);
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'archive', 'post', post.id);
+        await (0, db_1.updatePost)(post.id, { status: 'cancelled' });
+    await (0, db_1.archivePost)(post.id, req.mediafoxUser.userId);
+    await (0, db_1.getPool)().query("UPDATE post_queue SET status='dead' WHERE post_variant_id IN (SELECT id FROM post_variants WHERE post_id=$1) AND status='pending'", [post.id]);
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'archive', 'post', post.id);
     res.json({ ok: true, archived: true });
-});
-router.post('/:id/restore', (req, res) => {
-    const post = (0, db_1.getPostById)(req.params.id);
+}));
+router.post('/:id/restore', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId || !post.archived_at) {
         res.status(404).json({ error: 'Archived post not found' });
         return;
     }
-    (0, db_1.restorePost)(post.id);
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'restore', 'post', post.id);
-    res.json({ post: postWithVariants(post.id) });
-});
+    await (0, db_1.restorePost)(post.id);
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'restore', 'post', post.id);
+    res.json({ post: await postWithVariants(post.id) });
+}));
 // ─── Reddit assisted publish workflow ───────────────────────────────────────
-router.get('/:id/reddit-assists', (req, res) => {
-    const post = (0, db_1.getPostById)(req.params.id);
+router.get('/:id/reddit-assists', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    res.json({ assists: (0, db_1.getRedditAssistsByPost)(req.studioId, post.id) });
-});
-router.post('/:id/reddit-assists', (req, res) => {
-    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+    res.json({ assists: await (0, db_1.getRedditAssistsByPost)(req.studioId, post.id) });
+}));
+router.post('/:id/reddit-assists', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    if (!await requireRole(req, res, 'owner', 'manager', 'editor'))
         return;
-    const post = (0, db_1.getPostById)(req.params.id);
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -363,7 +368,7 @@ router.post('/:id/reddit-assists', (req, res) => {
         res.status(400).json({ error: 'subreddit is invalid' });
         return;
     }
-    const assist = (0, db_1.createRedditAssist)({
+    const assist = await (0, db_1.createRedditAssist)({
         id: (0, uuid_1.v4)(),
         post_id: post.id,
         studio_id: req.studioId,
@@ -373,18 +378,18 @@ router.post('/:id/reddit-assists', (req, res) => {
         body: body?.trim() || null,
         handoff_note: handoff_note?.trim() || null,
     });
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reddit_handoff', 'post', post.id, { assist_id: assist.id, subreddit: normalizedSubreddit });
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reddit_handoff', 'post', post.id, { assist_id: assist.id, subreddit: normalizedSubreddit });
     res.status(201).json({ assist });
-});
-router.post('/:id/reddit-assists/:assistId/complete', (req, res) => {
-    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+}));
+router.post('/:id/reddit-assists/:assistId/complete', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    if (!await requireRole(req, res, 'owner', 'manager', 'editor'))
         return;
-    const post = (0, db_1.getPostById)(req.params.id);
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    const assists = (0, db_1.getRedditAssistsByPost)(req.studioId, post.id);
+    const assists = await (0, db_1.getRedditAssistsByPost)(req.studioId, post.id);
     const assist = assists.find(a => a.id === req.params.assistId);
     if (!assist) {
         res.status(404).json({ error: 'Assist not found' });
@@ -395,23 +400,23 @@ router.post('/:id/reddit-assists/:assistId/complete', (req, res) => {
         res.status(400).json({ error: 'publish_url must be a valid http(s) URL' });
         return;
     }
-    (0, db_1.markRedditAssistPublished)(assist.id, publish_url.trim());
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reddit_publish_complete', 'post', post.id, { assist_id: assist.id, publish_url });
+    await (0, db_1.markRedditAssistPublished)(assist.id, publish_url.trim());
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'reddit_publish_complete', 'post', post.id, { assist_id: assist.id, publish_url });
     res.json({ ok: true });
-});
+}));
 // ─── TikTok assisted publish workflow ───────────────────────────────────────
-router.get('/:id/tiktok-assists', (req, res) => {
-    const post = (0, db_1.getPostById)(req.params.id);
+router.get('/:id/tiktok-assists', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    res.json({ assists: (0, db_1.getTikTokAssistsByPost)(req.studioId, post.id) });
-});
-router.post('/:id/tiktok-assists', (req, res) => {
-    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+    res.json({ assists: await (0, db_1.getTikTokAssistsByPost)(req.studioId, post.id) });
+}));
+router.post('/:id/tiktok-assists', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    if (!await requireRole(req, res, 'owner', 'manager', 'editor'))
         return;
-    const post = (0, db_1.getPostById)(req.params.id);
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -429,7 +434,7 @@ router.post('/:id/tiktok-assists', (req, res) => {
         res.status(400).json({ error: 'caption exceeds TikTok limits' });
         return;
     }
-    const assist = (0, db_1.createTikTokAssist)({
+    const assist = await (0, db_1.createTikTokAssist)({
         id: (0, uuid_1.v4)(),
         post_id: post.id,
         studio_id: req.studioId,
@@ -438,18 +443,18 @@ router.post('/:id/tiktok-assists', (req, res) => {
         media_asset_id: media_asset_id?.trim() || null,
         handoff_note: handoff_note?.trim() || null,
     });
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'tiktok_handoff', 'post', post.id, { assist_id: assist.id });
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'tiktok_handoff', 'post', post.id, { assist_id: assist.id });
     res.status(201).json({ assist });
-});
-router.post('/:id/tiktok-assists/:assistId/complete', (req, res) => {
-    if (!requireRole(req, res, 'owner', 'manager', 'editor'))
+}));
+router.post('/:id/tiktok-assists/:assistId/complete', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    if (!await requireRole(req, res, 'owner', 'manager', 'editor'))
         return;
-    const post = (0, db_1.getPostById)(req.params.id);
+    const post = await (0, db_1.getPostById)(req.params.id);
     if (!post || post.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    const assists = (0, db_1.getTikTokAssistsByPost)(req.studioId, post.id);
+    const assists = await (0, db_1.getTikTokAssistsByPost)(req.studioId, post.id);
     const assist = assists.find(a => a.id === req.params.assistId);
     if (!assist) {
         res.status(404).json({ error: 'Assist not found' });
@@ -460,11 +465,9 @@ router.post('/:id/tiktok-assists/:assistId/complete', (req, res) => {
         res.status(400).json({ error: 'publish_url must be a valid http(s) URL' });
         return;
     }
-    (0, db_1.markTikTokAssistPublished)(assist.id, publish_url.trim());
-    (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'tiktok_publish_complete', 'post', post.id, { assist_id: assist.id, publish_url });
+    await (0, db_1.markTikTokAssistPublished)(assist.id, publish_url.trim());
+    await (0, db_1.audit)(req.studioId, req.mediafoxUser.userId, 'tiktok_publish_complete', 'post', post.id, { assist_id: assist.id, publish_url });
     res.json({ ok: true });
-});
-// Inline helper to avoid circular import
-const getDb = () => require('../utils/db').getDb();
+}));
 exports.default = router;
 //# sourceMappingURL=posts.js.map

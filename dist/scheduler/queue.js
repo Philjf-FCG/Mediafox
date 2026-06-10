@@ -44,16 +44,16 @@ const instagram_1 = require("../adapters/instagram");
 const linkedin_1 = require("../adapters/linkedin");
 const MEDIA_PATH = process.env.MEDIA_STORAGE_PATH ?? '/opt/data/media';
 const BACKOFF_DELAYS_MS = [5 * 60 * 1000, 30 * 60 * 1000, 2 * 60 * 60 * 1000];
-const schedulePost = (postId, variantId, fireAt) => {
-    (0, db_1.enqueueVariant)((0, uuid_1.v4)(), variantId, fireAt.toISOString());
+const schedulePost = async (postId, variantId, fireAt) => {
+    await (0, db_1.enqueueVariant)((0, uuid_1.v4)(), variantId, fireAt.toISOString());
 };
 exports.schedulePost = schedulePost;
-const schedulePostNow = (postId, variantId) => {
-    (0, exports.schedulePost)(postId, variantId, new Date());
+const schedulePostNow = async (postId, variantId) => {
+    await (0, exports.schedulePost)(postId, variantId, new Date());
 };
 exports.schedulePostNow = schedulePostNow;
 const dispatchVariant = async (variant) => {
-    const account = (0, db_1.getAccountById)(variant.account_id);
+    const account = await (0, db_1.getAccountById)(variant.account_id);
     if (!account)
         throw new Error(`Account ${variant.account_id} not found`);
     if (account.status === 'expired')
@@ -87,27 +87,27 @@ const dispatchVariant = async (variant) => {
     }
 };
 const processDueItems = async () => {
-    const items = (0, db_1.getDueQueueItems)();
+    const items = await (0, db_1.getDueQueueItems)();
     for (const item of items) {
-        const locked = (0, db_1.lockQueueItem)(item.id);
+        const locked = await (0, db_1.lockQueueItem)(item.id);
         if (!locked)
             continue;
-        const variant = (await Promise.resolve().then(() => __importStar(require('../utils/db')))).getDb()
-            .prepare('SELECT * FROM post_variants WHERE id=?').get(item.post_variant_id);
+        const { rows } = await (0, db_1.getPool)().query('SELECT * FROM post_variants WHERE id=$1', [item.post_variant_id]);
+        const variant = rows[0];
         if (!variant) {
-            (0, db_1.resolveQueueItem)(item.id, false);
+            await (0, db_1.resolveQueueItem)(item.id, false);
             continue;
         }
         try {
             const result = await dispatchVariant(variant);
-            (0, db_1.updateVariant)(variant.id, {
+            await (0, db_1.updateVariant)(variant.id, {
                 status: 'published',
                 platform_post_id: result.platformPostId,
                 published_at: new Date().toISOString(),
             });
-            (0, db_1.resolveQueueItem)(item.id, true);
-            (0, db_1.createNotification)((0, uuid_1.v4)(), variant.account_id, '', 'post_published', 'Post published', undefined, `/posts/${variant.post_id}`);
-            maybeMarkPostPublished(variant.post_id);
+            await (0, db_1.resolveQueueItem)(item.id, true);
+            await (0, db_1.createNotification)((0, uuid_1.v4)(), variant.account_id, '', 'post_published', 'Post published', undefined, `/posts/${variant.post_id}`);
+            await maybeMarkPostPublished(variant.post_id);
             void notifyAuthorByEmail(variant.post_id, 'published');
         }
         catch (err) {
@@ -115,14 +115,14 @@ const processDueItems = async () => {
             const nextDelay = BACKOFF_DELAYS_MS[attempts - 1];
             if (nextDelay !== undefined) {
                 const nextFireAt = new Date(Date.now() + nextDelay).toISOString();
-                (0, db_1.updateVariant)(variant.id, { retry_count: attempts, error_message: String(err) });
-                (0, db_1.resolveQueueItem)(item.id, false, nextFireAt);
+                await (0, db_1.updateVariant)(variant.id, { retry_count: attempts, error_message: String(err) });
+                await (0, db_1.resolveQueueItem)(item.id, false, nextFireAt);
             }
             else {
-                (0, db_1.updateVariant)(variant.id, { status: 'failed', error_message: String(err) });
-                (0, db_1.resolveQueueItem)(item.id, false);
-                (0, db_1.createNotification)((0, uuid_1.v4)(), variant.account_id, '', 'post_failed', 'Post failed to publish', `After 3 attempts: ${String(err)}`, `/posts/${variant.post_id}`);
-                maybeMarkPostFailed(variant.post_id);
+                await (0, db_1.updateVariant)(variant.id, { status: 'failed', error_message: String(err) });
+                await (0, db_1.resolveQueueItem)(item.id, false);
+                await (0, db_1.createNotification)((0, uuid_1.v4)(), variant.account_id, '', 'post_failed', 'Post failed to publish', `After 3 attempts: ${String(err)}`, `/posts/${variant.post_id}`);
+                await maybeMarkPostFailed(variant.post_id);
                 void notifyAuthorByEmail(variant.post_id, 'failed', String(err));
             }
         }
@@ -131,17 +131,17 @@ const processDueItems = async () => {
 exports.processDueItems = processDueItems;
 const notifyAuthorByEmail = async (postId, outcome, error) => {
     try {
-        const db = (await Promise.resolve().then(() => __importStar(require('../utils/db')))).getDb();
-        const row = db.prepare(`
+        const { rows } = await (0, db_1.getPool)().query(`
       SELECT p.title, p.author_user_id, sm.email,
-             GROUP_CONCAT(a.platform) AS platforms
+             string_agg(DISTINCT a.platform, ',') AS platforms
       FROM posts p
       JOIN studio_members sm ON sm.studio_id=p.studio_id AND sm.user_id=p.author_user_id
-      JOIN post_variants pv ON pv.post_id=p.id AND pv.status=?
+      JOIN post_variants pv ON pv.post_id=p.id AND pv.status=$1
       JOIN accounts a ON a.id=pv.account_id
-      WHERE p.id=?
-      GROUP BY p.id
-    `).get(outcome === 'published' ? 'published' : 'failed', postId);
+      WHERE p.id=$2
+      GROUP BY p.id, p.title, p.author_user_id, sm.email
+    `, [outcome === 'published' ? 'published' : 'failed', postId]);
+        const row = rows[0];
         if (!row)
             return;
         const { notifyPostPublished, notifyPostFailed } = await Promise.resolve().then(() => __importStar(require('../utils/email')));
@@ -153,17 +153,17 @@ const notifyAuthorByEmail = async (postId, outcome, error) => {
     }
     catch { /* email failure is non-fatal */ }
 };
-const maybeMarkPostPublished = (postId) => {
-    const variants = (0, db_1.getVariantsByPost)(postId);
+const maybeMarkPostPublished = async (postId) => {
+    const variants = await (0, db_1.getVariantsByPost)(postId);
     const allDone = variants.every(v => v.status === 'published' || v.status === 'failed');
     const anyPublished = variants.some(v => v.status === 'published');
     if (allDone && anyPublished)
-        (0, db_1.updatePost)(postId, { status: 'published', published_at: new Date().toISOString() });
+        await (0, db_1.updatePost)(postId, { status: 'published', published_at: new Date().toISOString() });
 };
-const maybeMarkPostFailed = (postId) => {
-    const variants = (0, db_1.getVariantsByPost)(postId);
+const maybeMarkPostFailed = async (postId) => {
+    const variants = await (0, db_1.getVariantsByPost)(postId);
     const allFailed = variants.every(v => v.status === 'failed');
     if (allFailed)
-        (0, db_1.updatePost)(postId, { status: 'failed' });
+        await (0, db_1.updatePost)(postId, { status: 'failed' });
 };
 //# sourceMappingURL=queue.js.map

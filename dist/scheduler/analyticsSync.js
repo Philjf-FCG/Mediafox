@@ -41,28 +41,29 @@ const axios_1 = __importDefault(require("axios"));
 const uuid_1 = require("uuid");
 const db_1 = require("../utils/db");
 const crypto_1 = require("../utils/crypto");
-const upsertPostAnalytics = (variantId, platform, metrics) => {
-    (0, db_1.getDb)().prepare(`
+const upsertPostAnalytics = async (variantId, platform, metrics) => {
+    const m = { likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, clicks: 0, ...metrics };
+    await (0, db_1.getPool)().query(`
     INSERT INTO post_analytics (id, post_variant_id, platform, likes, comments, shares, reach, impressions, clicks)
-    VALUES (@id, @variantId, @platform, @likes, @comments, @shares, @reach, @impressions, @clicks)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
     ON CONFLICT(post_variant_id) DO UPDATE SET
-      likes=excluded.likes, comments=excluded.comments, shares=excluded.shares,
-      reach=excluded.reach, impressions=excluded.impressions, clicks=excluded.clicks,
-      synced_at=datetime('now')
-  `).run({ id: (0, uuid_1.v4)(), variantId, platform, likes: 0, comments: 0, shares: 0, reach: 0, impressions: 0, clicks: 0, ...metrics });
+      likes=$4, comments=$5, shares=$6,
+      reach=$7, impressions=$8, clicks=$9,
+      synced_at=NOW()
+  `, [(0, uuid_1.v4)(), variantId, platform, m.likes, m.comments, m.shares, m.reach, m.impressions, m.clicks]);
 };
-const insertAccountAnalytics = (accountId, metrics) => {
-    (0, db_1.getDb)().prepare(`
-    INSERT OR IGNORE INTO account_analytics (id, account_id, recorded_at, followers, following, posts_count)
-    VALUES (@id, @accountId, date('now'), @followers, @following, @posts_count)
-  `).run({ id: (0, uuid_1.v4)(), accountId, followers: 0, following: 0, posts_count: 0, ...metrics });
+const insertAccountAnalytics = async (accountId, metrics) => {
+    const m = { followers: 0, following: 0, posts_count: 0, ...metrics };
+    await (0, db_1.getPool)().query(`
+    INSERT INTO account_analytics (id, account_id, recorded_at, followers, following, posts_count)
+    VALUES ($1, $2, CURRENT_DATE, $3, $4, $5)
+    ON CONFLICT DO NOTHING
+  `, [(0, uuid_1.v4)(), accountId, m.followers, m.following, m.posts_count]);
 };
 // ─── Facebook & Instagram Insights ───────────────────────────────────────────
 const syncFacebook = async (account) => {
     const token = (0, crypto_1.decryptToken)(account.access_token);
-    const variants = (0, db_1.getDb)()
-        .prepare(`SELECT pv.* FROM post_variants pv JOIN posts p ON p.id=pv.post_id WHERE pv.account_id=? AND pv.status='published' AND pv.platform_post_id IS NOT NULL`)
-        .all(account.id);
+    const { rows: variants } = await (0, db_1.getPool)().query(`SELECT pv.* FROM post_variants pv JOIN posts p ON p.id=pv.post_id WHERE pv.account_id=$1 AND pv.status='published' AND pv.platform_post_id IS NOT NULL`, [account.id]);
     for (const variant of variants.slice(0, 20)) {
         try {
             const res = await axios_1.default.get(`https://graph.facebook.com/v19.0/${variant.platform_post_id}/insights`, { params: { metric: 'post_impressions,post_impressions_unique,post_engaged_users,post_clicks', access_token: token }, timeout: 10000 });
@@ -70,7 +71,7 @@ const syncFacebook = async (account) => {
             for (const m of res.data.data ?? []) {
                 metrics[m.name] = m.values[0]?.value ?? 0;
             }
-            upsertPostAnalytics(variant.id, 'facebook', {
+            await upsertPostAnalytics(variant.id, 'facebook', {
                 impressions: metrics.post_impressions,
                 reach: metrics.post_impressions_unique,
                 clicks: metrics.post_clicks,
@@ -84,19 +85,17 @@ const syncFacebook = async (account) => {
     // Account follower count
     try {
         const pageRes = await axios_1.default.get(`https://graph.facebook.com/v19.0/${account.platform_id}`, { params: { fields: 'fan_count,followers_count', access_token: token }, timeout: 10000 });
-        insertAccountAnalytics(account.id, { followers: pageRes.data.fan_count ?? pageRes.data.followers_count ?? 0 });
+        await insertAccountAnalytics(account.id, { followers: pageRes.data.fan_count ?? pageRes.data.followers_count ?? 0 });
     }
     catch { /* skip */ }
 };
 const syncInstagram = async (account) => {
     const token = (0, crypto_1.decryptToken)(account.access_token);
-    const variants = (0, db_1.getDb)()
-        .prepare(`SELECT pv.* FROM post_variants pv WHERE pv.account_id=? AND pv.status='published' AND pv.platform_post_id IS NOT NULL`)
-        .all(account.id);
+    const { rows: variants } = await (0, db_1.getPool)().query(`SELECT pv.* FROM post_variants pv WHERE pv.account_id=$1 AND pv.status='published' AND pv.platform_post_id IS NOT NULL`, [account.id]);
     for (const variant of variants.slice(0, 20)) {
         try {
             const res = await axios_1.default.get(`https://graph.facebook.com/v19.0/${variant.platform_post_id}`, { params: { fields: 'like_count,comments_count,impressions,reach', access_token: token }, timeout: 10000 });
-            upsertPostAnalytics(variant.id, 'instagram', {
+            await upsertPostAnalytics(variant.id, 'instagram', {
                 likes: res.data.like_count,
                 comments: res.data.comments_count,
                 impressions: res.data.impressions,
@@ -108,16 +107,14 @@ const syncInstagram = async (account) => {
     // Account follower count
     try {
         const igRes = await axios_1.default.get(`https://graph.facebook.com/v19.0/${account.platform_id}`, { params: { fields: 'followers_count,media_count', access_token: token }, timeout: 10000 });
-        insertAccountAnalytics(account.id, { followers: igRes.data.followers_count ?? 0, posts_count: igRes.data.media_count ?? 0 });
+        await insertAccountAnalytics(account.id, { followers: igRes.data.followers_count ?? 0, posts_count: igRes.data.media_count ?? 0 });
     }
     catch { /* skip */ }
 };
 // ─── LinkedIn ─────────────────────────────────────────────────────────────────
 const syncLinkedIn = async (account) => {
     const token = (0, crypto_1.decryptToken)(account.access_token);
-    const variants = (0, db_1.getDb)()
-        .prepare(`SELECT pv.* FROM post_variants pv WHERE pv.account_id=? AND pv.status='published' AND pv.platform_post_id IS NOT NULL`)
-        .all(account.id);
+    const { rows: variants } = await (0, db_1.getPool)().query(`SELECT pv.* FROM post_variants pv WHERE pv.account_id=$1 AND pv.status='published' AND pv.platform_post_id IS NOT NULL`, [account.id]);
     for (const variant of variants.slice(0, 20)) {
         try {
             const res = await axios_1.default.get(`https://api.linkedin.com/v2/organizationalEntityShareStatistics`, {
@@ -127,7 +124,7 @@ const syncLinkedIn = async (account) => {
             }).catch(() => ({ data: { elements: [] } }));
             const stats = res.data.elements?.[0]?.totalShareStatistics;
             if (stats) {
-                upsertPostAnalytics(variant.id, 'linkedin', {
+                await upsertPostAnalytics(variant.id, 'linkedin', {
                     likes: stats.likeCount,
                     comments: stats.commentCount,
                     shares: stats.shareCount,
@@ -141,7 +138,7 @@ const syncLinkedIn = async (account) => {
     // Account follower count
     try {
         const followerRes = await axios_1.default.get(`https://api.linkedin.com/v2/networkSizes/urn:li:person:${account.platform_id}`, { headers: { Authorization: `Bearer ${token}` }, params: { edgeType: 'CompanyFollowedByMember' }, timeout: 10000 }).catch(() => ({ data: { firstDegreeSize: 0 } }));
-        insertAccountAnalytics(account.id, { followers: followerRes.data.firstDegreeSize ?? 0 });
+        await insertAccountAnalytics(account.id, { followers: followerRes.data.firstDegreeSize ?? 0 });
     }
     catch { /* skip */ }
 };
@@ -160,7 +157,7 @@ const syncBluesky = async (account) => {
     // Get profile for follower count
     try {
         const profile = await agent.getProfile({ actor: extra.did });
-        insertAccountAnalytics(account.id, {
+        await insertAccountAnalytics(account.id, {
             followers: profile.data.followersCount ?? 0,
             following: profile.data.followsCount ?? 0,
             posts_count: profile.data.postsCount ?? 0,
@@ -168,15 +165,13 @@ const syncBluesky = async (account) => {
     }
     catch { /* skip */ }
     // Post engagement
-    const variants = (0, db_1.getDb)()
-        .prepare(`SELECT pv.* FROM post_variants pv WHERE pv.account_id=? AND pv.status='published' AND pv.platform_post_id IS NOT NULL`)
-        .all(account.id);
+    const { rows: variants } = await (0, db_1.getPool)().query(`SELECT pv.* FROM post_variants pv WHERE pv.account_id=$1 AND pv.status='published' AND pv.platform_post_id IS NOT NULL`, [account.id]);
     for (const variant of variants.slice(0, 10)) {
         try {
             const thread = await agent.getPostThread({ uri: variant.platform_post_id });
             const post = thread.data.thread.post;
             if (post) {
-                upsertPostAnalytics(variant.id, 'bluesky', {
+                await upsertPostAnalytics(variant.id, 'bluesky', {
                     likes: post.likeCount,
                     comments: post.replyCount,
                     shares: post.repostCount,
@@ -188,9 +183,7 @@ const syncBluesky = async (account) => {
 };
 // ─── Main sync ────────────────────────────────────────────────────────────────
 const syncAnalytics = async () => {
-    const accounts = (0, db_1.getDb)()
-        .prepare(`SELECT * FROM accounts WHERE status='active' AND platform IN ('facebook','instagram','linkedin','bluesky')`)
-        .all();
+    const { rows: accounts } = await (0, db_1.getPool)().query(`SELECT * FROM accounts WHERE status='active' AND platform IN ('facebook','instagram','linkedin','bluesky')`);
     for (const account of accounts) {
         try {
             switch (account.platform) {

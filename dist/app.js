@@ -40,10 +40,12 @@ exports.createApp = void 0;
 const express_1 = __importDefault(require("express"));
 const cookie_parser_1 = __importDefault(require("cookie-parser"));
 const cors_1 = __importDefault(require("cors"));
+const helmet_1 = __importDefault(require("helmet"));
 const path_1 = __importDefault(require("path"));
 const fs_1 = __importDefault(require("fs"));
 const auth_1 = require("./utils/auth");
 const studio_1 = require("./middleware/studio");
+const logger_1 = require("./utils/logger");
 const auth_2 = __importDefault(require("./routes/auth"));
 const accounts_1 = __importDefault(require("./routes/accounts"));
 const posts_1 = __importDefault(require("./routes/posts"));
@@ -80,6 +82,10 @@ const createApp = () => {
     const app = (0, express_1.default)();
     const allowedOrigins = loadAllowedOrigins();
     const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+    app.use((0, helmet_1.default)({
+        contentSecurityPolicy: false,
+        crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+    }));
     app.use((0, cors_1.default)({
         origin: (origin, cb) => {
             if (!origin)
@@ -95,6 +101,7 @@ const createApp = () => {
     }));
     app.use(express_1.default.json({ limit: '10mb' }));
     app.use((0, cookie_parser_1.default)());
+    app.use(logger_1.requestLogger);
     app.use('/api', auth_1.requireCsrfProtection);
     app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'mediafox' }));
     app.use('/api/auth', auth_2.default);

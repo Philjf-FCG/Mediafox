@@ -45,6 +45,7 @@ const crypto_2 = require("../utils/crypto");
 const rateLimit_1 = require("../utils/rateLimit");
 const planGating_1 = require("../utils/planGating");
 const bluesky_1 = require("../adapters/bluesky");
+const asyncHandler_1 = require("../utils/asyncHandler");
 const router = (0, express_1.Router)();
 const getLinkedInScopes = (configuredRaw) => {
     const configured = (configuredRaw || process.env.LINKEDIN_SCOPES || '').split(',').map(s => s.trim()).filter(Boolean);
@@ -58,8 +59,8 @@ const getMetaScopes = (configuredRaw) => (configuredRaw || 'pages_manage_posts,p
     .map(s => s.trim())
     .filter(Boolean)
     .join(',');
-const getStudioOAuthConfig = (studioId) => {
-    const stored = (0, db_1.getStudioIntegrationSettings)(studioId);
+const getStudioOAuthConfig = async (studioId) => {
+    const stored = await (0, db_1.getStudioIntegrationSettings)(studioId);
     return {
         linkedinClientId: (stored?.linkedin_client_id || process.env.LINKEDIN_CLIENT_ID || '').trim(),
         linkedinClientSecret: (stored?.linkedin_client_secret || process.env.LINKEDIN_CLIENT_SECRET || '').trim(),
@@ -116,37 +117,37 @@ const parseOauthState = (state, platform) => {
     }
 };
 // ─── List accounts ────────────────────────────────────────────────────────────
-router.get('/', (req, res) => {
-    const accounts = (0, db_1.getAccountsByStudio)(req.studioId).map(a => ({
+router.get('/', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const accounts = (await (0, db_1.getAccountsByStudio)(req.studioId)).map(a => ({
         id: a.id, type: a.type, platform: a.platform, platform_id: a.platform_id,
         display_name: a.display_name, avatar_url: a.avatar_url,
         token_expires_at: a.token_expires_at, status: a.status, connected_at: a.connected_at,
         extra: JSON.parse(a.extra),
     }));
     res.json({ accounts });
-});
+}));
 // ─── Account health ───────────────────────────────────────────────────────────
-router.get('/:id/health', (req, res) => {
-    const account = (0, db_1.getAccountById)(req.params.id);
+router.get('/:id/health', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const account = await (0, db_1.getAccountById)(req.params.id);
     if (!account || account.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    const rl = (0, rateLimit_1.checkRateLimit)(account.id, account.platform);
+    const rl = await (0, rateLimit_1.checkRateLimit)(account.id, account.platform);
     res.json({ status: account.status, token_expires_at: account.token_expires_at, rate_limit: rl });
-});
+}));
 // ─── Disconnect ───────────────────────────────────────────────────────────────
-router.delete('/:id', (req, res) => {
-    const account = (0, db_1.getAccountById)(req.params.id);
+router.delete('/:id', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const account = await (0, db_1.getAccountById)(req.params.id);
     if (!account || account.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    (0, db_1.deleteAccount)(req.params.id);
+    await (0, db_1.deleteAccount)(req.params.id);
     res.json({ ok: true });
-});
+}));
 // ─── Bluesky connection ───────────────────────────────────────────────────────
-router.post('/connect/bluesky', async (req, res) => {
+router.post('/connect/bluesky', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { handle, app_password, account_type = 'company' } = req.body;
     if (!handle || !app_password) {
         res.status(400).json({ error: 'handle and app_password required' });
@@ -160,7 +161,7 @@ router.post('/connect/bluesky', async (req, res) => {
     try {
         const session = await (0, bluesky_1.createBlueskySession)(handle, app_password);
         const id = (0, uuid_1.v4)();
-        const account = (0, db_1.upsertAccount)({
+        const account = await (0, db_1.upsertAccount)({
             id,
             studio_id: req.studioId,
             owner_user_id: account_type === 'personal' ? req.mediafoxUser.userId : null,
@@ -181,9 +182,9 @@ router.post('/connect/bluesky', async (req, res) => {
         const msg = err instanceof Error ? err.message : 'Connection failed';
         res.status(400).json({ error: msg });
     }
-});
+}));
 // ─── Discord Webhook connection ───────────────────────────────────────────────
-router.post('/connect/discord/webhook', async (req, res) => {
+router.post('/connect/discord/webhook', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { webhook_url, display_name, account_type = 'company' } = req.body;
     if (!webhook_url) {
         res.status(400).json({ error: 'webhook_url required' });
@@ -207,7 +208,7 @@ router.post('/connect/discord/webhook', async (req, res) => {
     const id = (0, uuid_1.v4)();
     const parts = webhook_url.split('/');
     const platformId = parts[parts.length - 2] ?? id;
-    const account = (0, db_1.upsertAccount)({
+    const account = await (0, db_1.upsertAccount)({
         id,
         studio_id: req.studioId,
         owner_user_id: account_type === 'personal' ? req.mediafoxUser.userId : null,
@@ -223,7 +224,7 @@ router.post('/connect/discord/webhook', async (req, res) => {
         extra: JSON.stringify({ webhook_url: (0, crypto_2.encryptToken)(webhook_url) }),
     });
     res.json({ account: { id: account.id, platform: 'discord', display_name: account.display_name } });
-});
+}));
 // ─── Slack OAuth ──────────────────────────────────────────────────────────────
 router.get('/connect/slack', (req, res) => {
     const clientId = process.env.SLACK_CLIENT_ID;
@@ -245,7 +246,7 @@ router.get('/connect/slack', (req, res) => {
     const redirect = process.env.SLACK_REDIRECT_URI;
     res.json({ url: `https://slack.com/oauth/v2/authorize?client_id=${clientId}&scope=${scopes}&redirect_uri=${redirect}&state=${state}` });
 });
-router.get('/connect/slack/callback', async (req, res) => {
+router.get('/connect/slack/callback', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { code, state } = req.query;
     if (!code || !state) {
         res.status(400).send('Invalid callback');
@@ -260,7 +261,7 @@ router.get('/connect/slack/callback', async (req, res) => {
         res.status(403).send('Callback is not for this user');
         return;
     }
-    if (!(0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
+    if (!await (0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
         res.status(403).send('No studio access');
         return;
     }
@@ -278,7 +279,7 @@ router.get('/connect/slack/callback', async (req, res) => {
         // Fetch default channel list
         const chanRes = await axios_1.default.get('https://slack.com/api/conversations.list', { headers: { Authorization: `Bearer ${access_token}` }, params: { limit: 20 }, timeout: 10000 });
         const firstChannel = chanRes.data.channels?.[0];
-        (0, db_1.upsertAccount)({
+        await (0, db_1.upsertAccount)({
             id: (0, uuid_1.v4)(),
             studio_id: studioId,
             owner_user_id: null,
@@ -299,10 +300,10 @@ router.get('/connect/slack/callback', async (req, res) => {
         console.error('Slack OAuth error:', err);
         res.status(500).send('Slack connection failed');
     }
-});
+}));
 // ─── Meta OAuth (Facebook + Instagram) ───────────────────────────────────────
-router.get('/connect/meta', (req, res) => {
-    const cfg = getStudioOAuthConfig(req.studioId);
+router.get('/connect/meta', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const cfg = await getStudioOAuthConfig(req.studioId);
     if (!cfg.metaAppId) {
         res.status(503).json({ error: 'Meta integration not configured. Set META app ID in Settings -> Integration OAuth.' });
         return;
@@ -326,8 +327,8 @@ router.get('/connect/meta', (req, res) => {
         platform: 'meta',
     });
     res.json({ url: `https://www.facebook.com/v19.0/dialog/oauth?client_id=${cfg.metaAppId}&redirect_uri=${cfg.metaRedirectUri}&scope=${cfg.metaScopes}&state=${state}&response_type=code` });
-});
-router.get('/connect/meta/callback', async (req, res) => {
+}));
+router.get('/connect/meta/callback', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { code, state } = req.query;
     if (!code || !state) {
         res.status(400).send('Invalid callback');
@@ -342,12 +343,12 @@ router.get('/connect/meta/callback', async (req, res) => {
         res.status(403).send('Callback is not for this user');
         return;
     }
-    if (!(0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
+    if (!await (0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
         res.status(403).send('No studio access');
         return;
     }
     const { studioId, type } = parsed;
-    const cfg = getStudioOAuthConfig(studioId);
+    const cfg = await getStudioOAuthConfig(studioId);
     if (!cfg.metaAppId || !cfg.metaAppSecret || !cfg.metaRedirectUri) {
         res.status(503).send('Meta integration is not fully configured for this studio');
         return;
@@ -380,7 +381,7 @@ router.get('/connect/meta/callback', async (req, res) => {
         const { getFacebookPages } = await Promise.resolve().then(() => __importStar(require('../adapters/facebook')));
         const pages = await getFacebookPages(longToken);
         for (const page of pages) {
-            (0, db_1.upsertAccount)({
+            await (0, db_1.upsertAccount)({
                 id: (0, uuid_1.v4)(),
                 studio_id: studioId,
                 owner_user_id: null,
@@ -400,7 +401,7 @@ router.get('/connect/meta/callback', async (req, res) => {
                 const { getInstagramAccounts } = await Promise.resolve().then(() => __importStar(require('../adapters/instagram')));
                 const igAccounts = await getInstagramAccounts(page.access_token, page.id);
                 for (const ig of igAccounts) {
-                    (0, db_1.upsertAccount)({
+                    await (0, db_1.upsertAccount)({
                         id: (0, uuid_1.v4)(),
                         studio_id: studioId,
                         owner_user_id: null,
@@ -427,10 +428,10 @@ router.get('/connect/meta/callback', async (req, res) => {
         console.error('Meta OAuth error:', err);
         res.status(500).send('Meta connection failed');
     }
-});
+}));
 // ─── LinkedIn OAuth ───────────────────────────────────────────────────────────
-router.get('/connect/linkedin', (req, res) => {
-    const cfg = getStudioOAuthConfig(req.studioId);
+router.get('/connect/linkedin', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const cfg = await getStudioOAuthConfig(req.studioId);
     if (!cfg.linkedinClientId) {
         res.status(503).json({ error: 'LinkedIn integration not configured. Set LinkedIn client ID in Settings -> Integration OAuth.' });
         return;
@@ -455,8 +456,8 @@ router.get('/connect/linkedin', (req, res) => {
     });
     const scopes = cfg.linkedinScopes.join(' ');
     res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${cfg.linkedinClientId}&redirect_uri=${cfg.linkedinRedirectUri}&scope=${encodeURIComponent(scopes)}&state=${state}` });
-});
-router.get('/connect/linkedin/callback', async (req, res) => {
+}));
+router.get('/connect/linkedin/callback', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { code, state } = req.query;
     if (!code || !state) {
         res.status(400).send('Invalid callback');
@@ -471,12 +472,12 @@ router.get('/connect/linkedin/callback', async (req, res) => {
         res.status(403).send('Callback is not for this user');
         return;
     }
-    if (!(0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
+    if (!await (0, db_1.getMember)(parsed.studioId, req.mediafoxUser.userId)) {
         res.status(403).send('No studio access');
         return;
     }
     const { studioId, type } = parsed;
-    const cfg = getStudioOAuthConfig(studioId);
+    const cfg = await getStudioOAuthConfig(studioId);
     if (!cfg.linkedinClientId || !cfg.linkedinClientSecret || !cfg.linkedinRedirectUri) {
         res.status(503).send('LinkedIn integration is not fully configured for this studio');
         return;
@@ -494,7 +495,7 @@ router.get('/connect/linkedin/callback', async (req, res) => {
         const { getLinkedInProfile } = await Promise.resolve().then(() => __importStar(require('../adapters/linkedin')));
         const profile = await getLinkedInProfile(access_token);
         const name = `${profile.localizedFirstName} ${profile.localizedLastName}`.trim();
-        (0, db_1.upsertAccount)({
+        await (0, db_1.upsertAccount)({
             id: (0, uuid_1.v4)(),
             studio_id: studioId,
             owner_user_id: type === 'personal' ? req.mediafoxUser?.userId ?? null : null,
@@ -520,10 +521,10 @@ router.get('/connect/linkedin/callback', async (req, res) => {
         }
         res.status(500).send('LinkedIn connection failed');
     }
-});
+}));
 // ─── Token refresh ────────────────────────────────────────────────────────────
-router.post('/:id/refresh', async (req, res) => {
-    const account = (0, db_1.getAccountById)(req.params.id);
+router.post('/:id/refresh', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const account = await (0, db_1.getAccountById)(req.params.id);
     if (!account || account.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -536,7 +537,7 @@ router.post('/:id/refresh', async (req, res) => {
                 headers: { Authorization: `Bearer ${refreshJwt}` }, timeout: 10000,
             });
             const d = r.data;
-            (0, db_1.updateAccountTokens)(account.id, (0, crypto_2.encryptToken)(d.accessJwt), (0, crypto_2.encryptToken)(d.refreshJwt), null);
+            await (0, db_1.updateAccountTokens)(account.id, (0, crypto_2.encryptToken)(d.accessJwt), (0, crypto_2.encryptToken)(d.refreshJwt), null);
             res.json({ ok: true });
         }
         catch {
@@ -545,6 +546,6 @@ router.post('/:id/refresh', async (req, res) => {
         return;
     }
     res.json({ ok: false, message: 'Manual reconnection required for this platform' });
-});
+}));
 exports.default = router;
 //# sourceMappingURL=accounts.js.map

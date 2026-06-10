@@ -47,6 +47,7 @@ const net_1 = __importDefault(require("net"));
 const uuid_1 = require("uuid");
 const db_1 = require("../utils/db");
 const googlePhotos_1 = require("../adapters/googlePhotos");
+const asyncHandler_1 = require("../utils/asyncHandler");
 const STORAGE_PATH = () => process.env.MEDIA_STORAGE_PATH ?? path_1.default.join(process.cwd(), 'media');
 const storage = multer_1.default.diskStorage({
     destination: (_req, _file, cb) => {
@@ -181,16 +182,16 @@ const parseDim = (v) => {
     const n = Number(v);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
 };
-router.get('/', (req, res) => {
+router.get('/', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { q, include_archived } = req.query;
     const includeArchived = include_archived === '1' || include_archived === 'true';
-    const assets = (0, db_1.getMediaAssets)(req.studioId, q, includeArchived).map(a => ({
+    const assets = (await (0, db_1.getMediaAssets)(req.studioId, q, includeArchived)).map(a => ({
         ...a, tags: JSON.parse(a.tags),
         url: `/api/media/${a.id}/file`,
     }));
     res.json({ assets });
-});
-router.post('/google-photos/albums', async (req, res) => {
+}));
+router.post('/google-photos/albums', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const accessToken = readGoogleAccessToken(req);
     if (!accessToken) {
         res.status(400).json({ error: 'access_token is required' });
@@ -207,8 +208,8 @@ router.post('/google-photos/albums', async (req, res) => {
         const detail = err?.response?.data;
         res.status(502).json({ error: 'Failed to list Google Photos albums', detail: detail ?? String(err) });
     }
-});
-router.post('/google-photos/media-items', async (req, res) => {
+}));
+router.post('/google-photos/media-items', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const accessToken = readGoogleAccessToken(req);
     if (!accessToken) {
         res.status(400).json({ error: 'access_token is required' });
@@ -226,8 +227,8 @@ router.post('/google-photos/media-items', async (req, res) => {
         const detail = err?.response?.data;
         res.status(502).json({ error: 'Failed to list Google Photos media items', detail: detail ?? String(err) });
     }
-});
-router.post('/google-photos/import', async (req, res) => {
+}));
+router.post('/google-photos/import', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const accessToken = readGoogleAccessToken(req);
     if (!accessToken) {
         res.status(400).json({ error: 'access_token is required' });
@@ -253,14 +254,14 @@ router.post('/google-photos/import', async (req, res) => {
             skipped.push({ item_id: sourceId, reason: `unsupported_mime:${mimeType || 'unknown'}` });
             continue;
         }
-        if ((0, db_1.getMediaAssetBySource)(req.studioId, GOOGLE_PROVIDER, sourceId)) {
+        if (await (0, db_1.getMediaAssetBySource)(req.studioId, GOOGLE_PROVIDER, sourceId)) {
             skipped.push({ item_id: sourceId, reason: 'duplicate_source' });
             continue;
         }
         try {
             const bytes = await (0, googlePhotos_1.downloadGooglePhotosItem)(accessToken, item);
             const hash = crypto_1.default.createHash('sha256').update(bytes).digest('hex');
-            if ((0, db_1.getMediaAssetByHash)(req.studioId, hash)) {
+            if (await (0, db_1.getMediaAssetByHash)(req.studioId, hash)) {
                 skipped.push({ item_id: sourceId, reason: 'duplicate_hash' });
                 continue;
             }
@@ -268,7 +269,7 @@ router.post('/google-photos/import', async (req, res) => {
             const storageName = (0, uuid_1.v4)();
             fs_1.default.mkdirSync(STORAGE_PATH(), { recursive: true });
             fs_1.default.writeFileSync(path_1.default.join(STORAGE_PATH(), storageName), bytes);
-            const created = (0, db_1.createMediaAsset)({
+            const created = await (0, db_1.createMediaAsset)({
                 id,
                 studio_id: req.studioId,
                 uploaded_by: req.mediafoxUser.userId,
@@ -298,8 +299,8 @@ router.post('/google-photos/import', async (req, res) => {
         capped: items.length > selected.length,
         cap: GOOGLE_IMPORT_MAX_ITEMS,
     });
-});
-router.post('/', upload.single('file'), async (req, res) => {
+}));
+router.post('/', upload.single('file'), (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     if (!req.file) {
         res.status(400).json({ error: 'No file uploaded' });
         return;
@@ -316,7 +317,7 @@ router.post('/', upload.single('file'), async (req, res) => {
         catch { /* sharp optional */ }
     }
     const tags = req.body?.tags ? JSON.parse(req.body.tags) : [];
-    const asset = (0, db_1.createMediaAsset)({
+    const asset = await (0, db_1.createMediaAsset)({
         id: (0, uuid_1.v4)(),
         studio_id: req.studioId,
         uploaded_by: req.mediafoxUser.userId,
@@ -330,9 +331,9 @@ router.post('/', upload.single('file'), async (req, res) => {
         tags: JSON.stringify(tags),
     });
     res.status(201).json({ asset: { ...asset, tags, url: `/api/media/${asset.id}/file` } });
-});
-router.get('/:id/file', (req, res) => {
-    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
+}));
+router.get('/:id/file', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const asset = (await (0, db_1.getPool)().query('SELECT * FROM media_assets WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL', [req.params.id, req.studioId])).rows[0];
     if (!asset) {
         res.status(404).json({ error: 'Not found' });
         return;
@@ -344,41 +345,41 @@ router.get('/:id/file', (req, res) => {
     }
     res.setHeader('Content-Type', asset.mime_type);
     res.sendFile(filePath);
-});
-router.put('/:id/tags', (req, res) => {
+}));
+router.put('/:id/tags', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { tags } = req.body;
     if (!Array.isArray(tags)) {
         res.status(400).json({ error: 'tags must be an array' });
         return;
     }
-    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
+    const asset = (await (0, db_1.getPool)().query('SELECT * FROM media_assets WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL', [req.params.id, req.studioId])).rows[0];
     if (!asset) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    (0, db_1.getDb)().prepare('UPDATE media_assets SET tags=? WHERE id=?').run(JSON.stringify(tags), req.params.id);
+    await (0, db_1.getPool)().query('UPDATE media_assets SET tags=$1 WHERE id=$2', [JSON.stringify(tags), req.params.id]);
     res.json({ ok: true });
-});
-router.delete('/:id', (req, res) => {
-    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
+}));
+router.delete('/:id', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const asset = (await (0, db_1.getPool)().query('SELECT * FROM media_assets WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL', [req.params.id, req.studioId])).rows[0];
     if (!asset) {
         res.status(404).json({ error: 'Not found' });
         return;
     }
-    (0, db_1.archiveMediaAsset)(req.params.id, req.mediafoxUser.userId);
+    await (0, db_1.archiveMediaAsset)(req.params.id, req.mediafoxUser.userId);
     res.json({ ok: true, archived: true });
-});
-router.post('/:id/restore', (req, res) => {
-    const asset = (0, db_1.getDb)().prepare('SELECT * FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NOT NULL').get(req.params.id, req.studioId);
+}));
+router.post('/:id/restore', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const asset = (await (0, db_1.getPool)().query('SELECT * FROM media_assets WHERE id=$1 AND studio_id=$2 AND archived_at IS NOT NULL', [req.params.id, req.studioId])).rows[0];
     if (!asset) {
         res.status(404).json({ error: 'Archived asset not found' });
         return;
     }
-    (0, db_1.restoreMediaAsset)(req.params.id);
+    await (0, db_1.restoreMediaAsset)(req.params.id);
     res.json({ ok: true });
-});
+}));
 // ─── Link preview (OG metadata) ───────────────────────────────────────────────
-router.get('/link-preview', async (req, res) => {
+router.get('/link-preview', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { url } = req.query;
     if (!url) {
         res.status(400).json({ error: 'url is required' });
@@ -415,6 +416,6 @@ router.get('/link-preview', async (req, res) => {
     catch {
         res.json({ url: safeUrl.toString(), title: null, description: null, image: null, site_name: null });
     }
-});
+}));
 exports.default = router;
 //# sourceMappingURL=media.js.map

@@ -16,7 +16,7 @@ const igId = (account) => account.platform_id;
 const handleMeta = (err, accountId) => {
     const e = err;
     if (e.response?.data?.error?.code === 190)
-        (0, db_1.updateAccountStatus)(accountId, 'expired');
+        void (0, db_1.updateAccountStatus)(accountId, 'expired');
     throw err;
 };
 const pollUntilReady = async (igUserId, containerId, accessToken) => {
@@ -35,7 +35,7 @@ const pollUntilReady = async (igUserId, containerId, accessToken) => {
     void igUserId;
 };
 const publishImageToInstagram = async (account, imageUrl, caption) => {
-    const rl = (0, rateLimit_1.checkRateLimit)(account.id, 'instagram');
+    const rl = await (0, rateLimit_1.checkRateLimit)(account.id, 'instagram');
     if (!rl.allowed)
         throw new Error(`Instagram rate limit reached. Resets at ${rl.resetsAt}`);
     const at = token(account);
@@ -46,14 +46,14 @@ const publishImageToInstagram = async (account, imageUrl, caption) => {
             caption,
             access_token: at,
         }, { timeout: 30000 });
-        (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
+        await (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
         await pollUntilReady(id, container.data.id, at);
         const publish = await axios_1.default.post(`${BASE}/${id}/media_publish`, {
             creation_id: container.data.id,
             access_token: at,
         }, { timeout: 15000 });
-        (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
-        (0, db_1.updateAccountStatus)(account.id, 'active');
+        await (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
+        await (0, db_1.updateAccountStatus)(account.id, 'active');
         return { platformPostId: publish.data.id };
     }
     catch (err) {
@@ -62,7 +62,7 @@ const publishImageToInstagram = async (account, imageUrl, caption) => {
 };
 exports.publishImageToInstagram = publishImageToInstagram;
 const publishCarouselToInstagram = async (account, imageUrls, caption) => {
-    const rl = (0, rateLimit_1.checkRateLimit)(account.id, 'instagram');
+    const rl = await (0, rateLimit_1.checkRateLimit)(account.id, 'instagram');
     if (!rl.allowed)
         throw new Error('Instagram rate limit reached');
     const at = token(account);
@@ -75,7 +75,7 @@ const publishCarouselToInstagram = async (account, imageUrls, caption) => {
                 is_carousel_item: true,
                 access_token: at,
             }, { timeout: 30000 });
-            (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
+            await (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
             childIds.push(c.data.id);
         }
         const carousel = await axios_1.default.post(`${BASE}/${id}/media`, {
@@ -84,13 +84,13 @@ const publishCarouselToInstagram = async (account, imageUrls, caption) => {
             caption,
             access_token: at,
         }, { timeout: 30000 });
-        (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
+        await (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
         await pollUntilReady(id, carousel.data.id, at);
         const publish = await axios_1.default.post(`${BASE}/${id}/media_publish`, {
             creation_id: carousel.data.id,
             access_token: at,
         }, { timeout: 15000 });
-        (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
+        await (0, rateLimit_1.consumeRateLimit)(account.id, 'instagram');
         return { platformPostId: publish.data.id };
     }
     catch (err) {

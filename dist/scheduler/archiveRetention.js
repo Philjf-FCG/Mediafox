@@ -21,7 +21,7 @@ const daysAgoIso = (days) => {
 const purgeArchivedContent = async () => {
     const retentionDays = getRetentionDays();
     const cutoff = daysAgoIso(retentionDays);
-    const result = (0, db_1.purgeArchivedContentOlderThan)(cutoff);
+    const result = await (0, db_1.purgeArchivedContentOlderThan)(cutoff);
     // DB rows are removed first. Best-effort file cleanup follows.
     for (const storagePath of result.mediaStoragePaths) {
         const safeName = path_1.default.basename(storagePath);

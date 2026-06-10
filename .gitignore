@@ -1,10 +1,30 @@
-
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
+node_modules/
+dist/
+client/build/
+server/dist/
+server/coverage/
+server/.reports/
+*.log
+.DS_Store
+.vscode/
+.idea/
 .fox/
 
+# Local env files (deployment-specific, never commit)
+.env
+.env.local
+.env.*.local
+client/.env
+server/.env
+
+# Credentials — never commit
+*.pem
+*.key
+service-account*.json
+client_secret_*.json
+
+# Fox Suite URL config (deployment-specific, never commit)
+fox-suite.config.json
 
 # Beads / Dolt files (added by bd init)
 .dolt/
@@ -12,22 +32,3 @@
 *.db-shm
 *.db-wal
 .beads-credential-key
-node_modules
-dist/
-client/build/
-server/dist/
-server/coverage/
-server/.reports/
-*.log
-
-# Fox Suite URL config (deployment-specific, never commit)
-fox-suite.config.json
-
-# Local env files (deployment-specific, never commit)
-.env
-client/.env
-server/.env
-
-# Google OAuth credential downloads (never commit)
-client_secret_*.json
-

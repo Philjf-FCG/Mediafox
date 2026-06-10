@@ -42,25 +42,25 @@ const discord_1 = require("../adapters/discord");
 const slack_1 = require("../adapters/slack");
 const axios_1 = __importDefault(require("axios"));
 const crypto_1 = require("../utils/crypto");
+const asyncHandler_1 = require("../utils/asyncHandler");
 const router = (0, express_1.Router)();
-router.get('/', (req, res) => {
+router.get('/', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { platform, status, account_id, include_archived } = req.query;
     const includeArchived = include_archived === '1' || include_archived === 'true';
-    const items = (0, db_1.getInboxItems)(req.studioId, { platform, status, accountId: account_id, includeArchived });
+    const items = await (0, db_1.getInboxItems)(req.studioId, { platform, status, accountId: account_id, includeArchived });
     res.json({ items });
-});
-router.put('/:id', (req, res) => {
-    const db = require('../utils/db').getDb();
-    const item = db.prepare('SELECT id FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
+}));
+router.put('/:id', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const item = (await (0, db_1.getPool)().query('SELECT id FROM inbox_items WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL', [req.params.id, req.studioId])).rows[0];
     if (!item) {
         res.status(404).json({ error: 'Inbox item not found' });
         return;
     }
     const { status, assigned_to, internal_note } = req.body;
-    (0, db_1.updateInboxItem)(req.params.id, { status, assigned_to, internal_note });
+    await (0, db_1.updateInboxItem)(req.params.id, { status, assigned_to, internal_note });
     res.json({ ok: true });
-});
-router.post('/:id/reply', async (req, res) => {
+}));
+router.post('/:id/reply', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
     const { text, account_id } = req.body;
     if (!text) {
         res.status(400).json({ error: 'text is required' });
@@ -70,13 +70,12 @@ router.post('/:id/reply', async (req, res) => {
         res.status(400).json({ error: 'account_id is required' });
         return;
     }
-    const account = (0, db_1.getAccountById)(account_id);
+    const account = await (0, db_1.getAccountById)(account_id);
     if (!account || account.studio_id !== req.studioId) {
         res.status(404).json({ error: 'Account not found' });
         return;
     }
-    const db = (await Promise.resolve().then(() => __importStar(require('../utils/db')))).getDb();
-    const item = db.prepare('SELECT * FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
+    const item = (await (0, db_1.getPool)().query('SELECT * FROM inbox_items WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL', [req.params.id, req.studioId])).rows[0];
     if (!item) {
         res.status(404).json({ error: 'Inbox item not found' });
         return;
@@ -120,17 +119,16 @@ router.post('/:id/reply', async (req, res) => {
                 break;
             }
         }
-        (0, db_1.updateInboxItem)(req.params.id, { status: 'resolved' });
+        await (0, db_1.updateInboxItem)(req.params.id, { status: 'resolved' });
         res.json({ ok: true });
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : 'Reply failed';
         res.status(500).json({ error: msg });
     }
-});
-router.post('/:id/note', (req, res) => {
-    const db = require('../utils/db').getDb();
-    const item = db.prepare('SELECT id FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
+}));
+router.post('/:id/note', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const item = (await (0, db_1.getPool)().query('SELECT id FROM inbox_items WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL', [req.params.id, req.studioId])).rows[0];
     if (!item) {
         res.status(404).json({ error: 'Inbox item not found' });
         return;
@@ -140,28 +138,26 @@ router.post('/:id/note', (req, res) => {
         res.status(400).json({ error: 'note is required' });
         return;
     }
-    (0, db_1.updateInboxItem)(req.params.id, { internal_note: note });
+    await (0, db_1.updateInboxItem)(req.params.id, { internal_note: note });
     res.json({ ok: true });
-});
-router.delete('/:id', (req, res) => {
-    const db = require('../utils/db').getDb();
-    const item = db.prepare('SELECT id FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NULL').get(req.params.id, req.studioId);
+}));
+router.delete('/:id', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const item = (await (0, db_1.getPool)().query('SELECT id FROM inbox_items WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL', [req.params.id, req.studioId])).rows[0];
     if (!item) {
         res.status(404).json({ error: 'Inbox item not found' });
         return;
     }
-    (0, db_1.archiveInboxItem)(req.params.id, req.mediafoxUser.userId);
+    await (0, db_1.archiveInboxItem)(req.params.id, req.mediafoxUser.userId);
     res.json({ ok: true, archived: true });
-});
-router.post('/:id/restore', (req, res) => {
-    const db = require('../utils/db').getDb();
-    const item = db.prepare('SELECT id FROM inbox_items WHERE id=? AND studio_id=? AND archived_at IS NOT NULL').get(req.params.id, req.studioId);
+}));
+router.post('/:id/restore', (0, asyncHandler_1.asyncHandler)(async (req, res) => {
+    const item = (await (0, db_1.getPool)().query('SELECT id FROM inbox_items WHERE id=$1 AND studio_id=$2 AND archived_at IS NOT NULL', [req.params.id, req.studioId])).rows[0];
     if (!item) {
         res.status(404).json({ error: 'Archived inbox item not found' });
         return;
     }
-    (0, db_1.restoreInboxItem)(req.params.id);
+    await (0, db_1.restoreInboxItem)(req.params.id);
     res.json({ ok: true });
-});
+}));
 exports.default = router;
 //# sourceMappingURL=inbox.js.map

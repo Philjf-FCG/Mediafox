@@ -42,7 +42,8 @@ router.post('/publish', async (req, res) => {
         res.status(400).json({ error: 'visibility must be private, unlisted, or public' });
         return;
     }
-    const asset = (0, db_1.getDb)().prepare('SELECT id, storage_path, mime_type, filename FROM media_assets WHERE id=? AND studio_id=? AND archived_at IS NULL').get(media_asset_id, req.studioId);
+    const { rows } = await (0, db_1.getPool)().query('SELECT id, storage_path, mime_type, filename FROM media_assets WHERE id=$1 AND studio_id=$2 AND archived_at IS NULL', [media_asset_id, req.studioId]);
+    const asset = rows[0];
     if (!asset) {
         res.status(404).json({ error: 'Media asset not found' });
         return;
