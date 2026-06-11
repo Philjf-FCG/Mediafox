@@ -50,7 +50,7 @@ const upload = multer({
       'video/quicktime',
       'application/pdf',
     ];
-    cb(allowed.includes(file.mimetype));
+    cb(null, allowed.includes(file.mimetype));
   },
 });
 
