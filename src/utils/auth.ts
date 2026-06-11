@@ -32,14 +32,10 @@ const DEV_BYPASS_USER: MediaFoxUser = {
   role: 'admin',
 };
 
-export const isAuthEnabled = (): boolean => {
-  if (process.env.AUTH_ENABLED) return process.env.AUTH_ENABLED === 'true';
-  return process.env.NODE_ENV === 'production';
-};
+export const isAuthEnabled = (): boolean => process.env.AUTH_DISABLED !== 'true';
 
 const canUseDevBypass = (): boolean => {
   if (isAuthEnabled()) return false;
-  if (process.env.NODE_ENV === 'production') return false;
   return process.env.AUTH_DEV_BYPASS === 'true';
 };
 
