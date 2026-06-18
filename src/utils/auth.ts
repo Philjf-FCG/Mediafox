@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
+import { logSecurityEvent } from './logger';
 
 dotenv.config();
 
@@ -108,6 +109,13 @@ export const requireCsrfProtection = (req: Request, res: Response, next: NextFun
   }
 
   if (!hasValidCsrfToken(req)) {
+    logSecurityEvent({
+      req,
+      eventType: 'csrf_blocked',
+      severity: 'warning',
+      statusCode: 403,
+      message: 'CSRF blocked: invalid or missing token.',
+    });
     res.status(403).json({ error: 'Invalid CSRF token' });
     return;
   }

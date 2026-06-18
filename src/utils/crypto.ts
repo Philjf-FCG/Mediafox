@@ -7,14 +7,17 @@ const AUTH_TAG_LENGTH = 16;
 const getKey = (): Buffer => {
   const raw = process.env.TOKEN_ENCRYPTION_KEY || '';
   if (!raw || raw === 'change-me-to-a-32-byte-hex-string-in-production') {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('TOKEN_ENCRYPTION_KEY must be set in production');
-    }
-    return crypto.scryptSync('mediafox-dev-key', 'salt', 32);
+    throw new Error(
+      'TOKEN_ENCRYPTION_KEY must be set. Generate with: python -c \'import secrets; print(secrets.token_hex(32))\' and store in GCP Secret Manager.'
+    );
   }
   const buf = Buffer.from(raw, 'hex');
   if (buf.length !== 32) throw new Error('TOKEN_ENCRYPTION_KEY must be 32 bytes (64 hex chars)');
   return buf;
+};
+
+export const validateEncryptionKey = (): void => {
+  getKey();
 };
 
 export const encryptToken = (plaintext: string): string => {

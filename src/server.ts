@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { Request, Response, NextFunction } from 'express';
 import { createApp } from './app';
 import { initSchema } from './utils/db';
+import { validateEncryptionKey } from './utils/crypto';
 import { startWorker } from './scheduler/worker';
 import { logger } from './utils/logger';
 
@@ -16,6 +17,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 async function start() {
+  validateEncryptionKey();
   await initSchema();
   startWorker();
   const server = app.listen(PORT, HOST, () => {

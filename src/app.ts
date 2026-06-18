@@ -2,6 +2,8 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import { logSecurityEvent } from './utils/logger';
 import path from 'path';
 import fs from 'fs';
 import { requireAuth, requireCsrfProtection } from './utils/auth';
@@ -43,6 +45,28 @@ const loadAllowedOrigins = (): string[] => {
   }
 };
 
+const authRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_AUTH_MAX ?? 30),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logSecurityEvent({ req, eventType: 'rate_limit_exceeded', severity: 'warning', statusCode: 429, message: 'Auth rate limit exceeded.' });
+    res.status(429).json({ error: 'Too many auth attempts. Try again later.' });
+  },
+});
+
+const apiRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.RATE_LIMIT_API_MAX ?? 300),
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logSecurityEvent({ req, eventType: 'rate_limit_exceeded', severity: 'warning', statusCode: 429, message: 'API rate limit exceeded.' });
+    res.status(429).json({ error: 'Too many requests. Please try again later.' });
+  },
+});
+
 export const createApp = (): express.Application => {
   const app = express();
   const allowedOrigins = loadAllowedOrigins();
@@ -70,7 +94,7 @@ export const createApp = (): express.Application => {
 
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'mediafox' }));
 
-  app.use('/api/auth', authRoutes);
+  app.use('/api/auth', authRateLimit, authRoutes);
 
   app.get('/api/plan', requireAuth, async (req, res) => {
     const studioId = (req.headers['x-studio-id'] as string) || (req.query.studio_id as string);
@@ -99,7 +123,7 @@ export const createApp = (): express.Application => {
   // Accounts router registered before the main authed router so OAuth callbacks
   // (which arrive from external providers without x-studio-id) bypass attachStudio.
   // Routes that need req.studioId still get it when the client sends x-studio-id.
-  app.use('/api/accounts', requireAuth, attachStudioOptional, accountRoutes);
+  app.use('/api/accounts', apiRateLimit, requireAuth, attachStudioOptional, accountRoutes);
 
   const authed = express.Router();
   authed.use(requireAuth);
@@ -113,7 +137,7 @@ export const createApp = (): express.Application => {
   authed.use('/ai', aiRoutes);
   authed.use('/youtube', youtubeRoutes);
 
-  app.use('/api', authed);
+  app.use('/api', apiRateLimit, authed);
 
   // Serve React client in production
   const clientBuild = path.join(__dirname, '..', 'client', 'build');

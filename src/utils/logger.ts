@@ -1,5 +1,31 @@
 import { Request, Response, NextFunction } from 'express';
 
+type SecurityEventSeverity = 'info' | 'warning' | 'error';
+
+interface SecurityEventOptions {
+  req: Request;
+  eventType: string;
+  severity: SecurityEventSeverity;
+  statusCode: number;
+  message: string;
+  metadata?: Record<string, unknown>;
+}
+
+export function logSecurityEvent({ req, eventType, severity, statusCode, message, metadata }: SecurityEventOptions): void {
+  const ip = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.ip ?? 'unknown';
+  const entry = {
+    severity: severity === 'warning' ? 'WARNING' : severity === 'error' ? 'ERROR' : 'INFO',
+    event_type: eventType,
+    message,
+    status_code: statusCode,
+    ip,
+    endpoint: `${req.method} ${req.path}`,
+    timestamp: new Date().toISOString(),
+    ...metadata,
+  };
+  process.stdout.write(JSON.stringify(entry) + '\n');
+}
+
 const isProd = process.env.NODE_ENV === 'production';
 
 type Severity = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
