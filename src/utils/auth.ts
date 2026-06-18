@@ -3,6 +3,14 @@ import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { logSecurityEvent } from './logger';
+import {
+  FoxAuthClaims,
+  isAuthEnabled,
+  parseFoxAuthToken,
+} from '@philjf-fcg/auth-middleware';
+
+export type { FoxAuthClaims };
+export { isAuthEnabled, parseFoxAuthToken };
 
 dotenv.config();
 
@@ -11,14 +19,6 @@ export interface MediaFoxUser {
   email: string;
   name: string;
   role: 'admin' | 'user';
-}
-
-interface FoxAuthClaims {
-  sub: string;
-  email: string;
-  name: string;
-  role: 'admin' | 'user';
-  approved: boolean;
 }
 
 export const AUTH_COOKIE = 'mediafox_auth';
@@ -33,8 +33,6 @@ const DEV_BYPASS_USER: MediaFoxUser = {
   role: 'admin',
 };
 
-export const isAuthEnabled = (): boolean => process.env.AUTH_DISABLED !== 'true';
-
 const canUseDevBypass = (): boolean => {
   if (isAuthEnabled()) return false;
   return process.env.AUTH_DEV_BYPASS === 'true';
@@ -45,8 +43,6 @@ const getJwtSecret = (): string => {
   if (!s) throw new Error('MEDIAFOX_JWT_SECRET is required when auth is enabled');
   return s;
 };
-
-const getFoxAuthSecret = (): string => process.env.FOXAUTH_JWT_SECRET || '';
 
 const isSecureRequest = (req: Request): boolean =>
   req.secure || req.headers['x-forwarded-proto'] === 'https';
@@ -107,7 +103,6 @@ export const requireCsrfProtection = (req: Request, res: Response, next: NextFun
     next();
     return;
   }
-
   if (!hasValidCsrfToken(req)) {
     logSecurityEvent({
       req,
@@ -119,7 +114,6 @@ export const requireCsrfProtection = (req: Request, res: Response, next: NextFun
     res.status(403).json({ error: 'Invalid CSRF token' });
     return;
   }
-
   next();
 };
 
@@ -130,18 +124,6 @@ export const parseOwnAuthToken = (req: Request): MediaFoxUser | null => {
   if (!token) return null;
   try {
     return jwt.verify(token, getJwtSecret()) as MediaFoxUser;
-  } catch { return null; }
-};
-
-export const parseFoxAuthToken = (req: Request): FoxAuthClaims | null => {
-  const token = req.cookies?.[FOXAUTH_COOKIE];
-  if (!token) return null;
-  const secret = getFoxAuthSecret();
-  if (!secret) return null;
-  try {
-    const claims = jwt.verify(token, secret) as FoxAuthClaims;
-    if (!claims?.sub || !claims?.email) return null;
-    return claims;
   } catch { return null; }
 };
 
