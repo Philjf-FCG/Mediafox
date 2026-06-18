@@ -34,7 +34,7 @@ steps:
   - --platform=managed
   - --port=5004
   - --update-env-vars=GOOGLE_CLIENT_ID=${_GOOGLE_CLIENT_ID},NODE_ENV=production,AUTH_ENABLED=true,AUTH_ADMIN_EMAILS=philjfoxton@googlemail.com,DATABASE_PATH=/opt/data/mediafox.db,MEDIA_STORAGE_PATH=/opt/data/media,CORS_ALLOWED_ORIGINS=https://mediafox-843941617497.europe-west2.run.app
-  - --set-secrets=MEDIAFOX_JWT_SECRET=mediafox-jwt-secret:latest,TOKEN_ENCRYPTION_KEY=mediafox-token-key:latest,FOXAUTH_JWT_SECRET=foxauth-jwt-secret:latest
+  - --set-secrets=AUTH_JWT_SECRET=mediafox-jwt-secret:latest,TOKEN_ENCRYPTION_KEY=mediafox-token-key:latest,FOXAUTH_JWT_SECRET=foxauth-jwt-secret:latest
 
 # Required secrets in GCP Secret Manager (create once):
 #   gcloud secrets create mediafox-jwt-secret --project=PROJECT_ID
