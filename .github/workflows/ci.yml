@@ -24,9 +24,6 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: read
 
     steps:
       - uses: actions/checkout@v4
@@ -36,16 +33,12 @@ jobs:
         with:
           node-version: 24
           cache: 'npm'
-          registry-url: 'https://npm.pkg.github.com'
-          scope: '@philjf-fcg'
 
       - name: Install dependencies
-        run: npm install
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm ci
 
       - name: Install client dependencies
-        run: npm install --prefix client
+        run: npm ci --prefix client
 
       - name: Build server
         run: npm run build:server

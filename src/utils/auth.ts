@@ -3,16 +3,8 @@ import { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { logSecurityEvent } from './logger';
-import {
-  FoxAuthClaims,
-  isAuthEnabled,
-  parseFoxAuthToken,
-} from '@philjf-fcg/auth-middleware';
 
 dotenv.config();
-
-export type { FoxAuthClaims };
-export { isAuthEnabled, parseFoxAuthToken };
 
 export interface MediaFoxUser {
   userId: string;
@@ -21,9 +13,18 @@ export interface MediaFoxUser {
   role: 'admin' | 'user';
 }
 
+interface FoxAuthClaims {
+  sub: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'user';
+  approved: boolean;
+}
+
 export const AUTH_COOKIE = 'mediafox_auth';
 export const CSRF_COOKIE = 'mediafox_csrf';
 export const CSRF_HEADER = 'x-csrf-token';
+const FOXAUTH_COOKIE = 'fox_auth';
 
 const DEV_BYPASS_USER: MediaFoxUser = {
   userId: 'local-dev-user',
@@ -32,20 +33,25 @@ const DEV_BYPASS_USER: MediaFoxUser = {
   role: 'admin',
 };
 
+export const isAuthEnabled = (): boolean => process.env.AUTH_DISABLED !== 'true';
+
 const canUseDevBypass = (): boolean => {
   if (isAuthEnabled()) return false;
   return process.env.AUTH_DEV_BYPASS === 'true';
 };
 
-// MediaFox uses AUTH_JWT_SECRET (standardised across all FoxSuite Node services).
 const getJwtSecret = (): string => {
-  const s = (process.env.AUTH_JWT_SECRET || '').trim();
-  if (!s) throw new Error('AUTH_JWT_SECRET is required when auth is enabled');
+  const s = (process.env.MEDIAFOX_JWT_SECRET || '').trim();
+  if (!s) throw new Error('MEDIAFOX_JWT_SECRET is required when auth is enabled');
   return s;
 };
 
+const getFoxAuthSecret = (): string => process.env.FOXAUTH_JWT_SECRET || '';
+
 const isSecureRequest = (req: Request): boolean =>
   req.secure || req.headers['x-forwarded-proto'] === 'https';
+
+// ─── Own auth cookie ──────────────────────────────────────────────────────────
 
 export const issueAuthToken = (user: MediaFoxUser): string =>
   jwt.sign(user, getJwtSecret(), { expiresIn: '12h' });
@@ -97,7 +103,11 @@ export const hasValidCsrfToken = (req: Request): boolean => {
 const CSRF_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export const requireCsrfProtection = (req: Request, res: Response, next: NextFunction): void => {
-  if (CSRF_SAFE_METHODS.has(req.method.toUpperCase())) { next(); return; }
+  if (CSRF_SAFE_METHODS.has(req.method.toUpperCase())) {
+    next();
+    return;
+  }
+
   if (!hasValidCsrfToken(req)) {
     logSecurityEvent({
       req,
@@ -109,8 +119,11 @@ export const requireCsrfProtection = (req: Request, res: Response, next: NextFun
     res.status(403).json({ error: 'Invalid CSRF token' });
     return;
   }
+
   next();
 };
+
+// ─── Token parsing ────────────────────────────────────────────────────────────
 
 export const parseOwnAuthToken = (req: Request): MediaFoxUser | null => {
   const token = req.cookies?.[AUTH_COOKIE];
@@ -119,6 +132,20 @@ export const parseOwnAuthToken = (req: Request): MediaFoxUser | null => {
     return jwt.verify(token, getJwtSecret()) as MediaFoxUser;
   } catch { return null; }
 };
+
+export const parseFoxAuthToken = (req: Request): FoxAuthClaims | null => {
+  const token = req.cookies?.[FOXAUTH_COOKIE];
+  if (!token) return null;
+  const secret = getFoxAuthSecret();
+  if (!secret) return null;
+  try {
+    const claims = jwt.verify(token, secret) as FoxAuthClaims;
+    if (!claims?.sub || !claims?.email) return null;
+    return claims;
+  } catch { return null; }
+};
+
+// ─── requireAuth ──────────────────────────────────────────────────────────────
 
 export const requireAuth = (req: Request, res: Response, next: NextFunction): void => {
   if (!isAuthEnabled()) {
