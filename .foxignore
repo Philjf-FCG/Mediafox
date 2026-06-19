@@ -1,32 +1,65 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
 
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-.beads-credential-key
-.fox/
-
-
-# Beads / Dolt files (added by bd init)
-.dolt/
-*.db
-*.db-shm
-*.db-wal
-.beads-credential-key
-node_modules
+# Node.js
+node_modules/
+dist/
+build/
 client/build/
+client/dist/
 server/dist/
-server/coverage/
-server/.reports/
-*.log
+.npm/
 
-# Fox Suite URL config (deployment-specific, never commit)
-fox-suite.config.json
+# Python
+**/__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
 
-# Local env files (deployment-specific, never commit)
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment and secrets
 .env
-client/.env
-server/.env
+.env.local
+.env.*.local
+*.local.toml
 
-# Google OAuth credential downloads (never commit)
-client_secret_*.json
+# Fox SCM own data
+.fox/
+.fox-benchmark/
 
+# Beads / Dolt
+.beads/
+.dolt/
+*.db
+.beads-credential-key
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test and benchmark data
+/test-data/
+*.test-blob
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Deployment config
+fox-suite.config.json
