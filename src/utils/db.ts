@@ -6,6 +6,19 @@ import { decryptToken, encryptToken } from './crypto';
 pg.types.setTypeParser(pg.types.builtins.TIMESTAMP, (v: string) => v ? new Date(v + 'Z').toISOString() : null);
 pg.types.setTypeParser(pg.types.builtins.TIMESTAMPTZ, (v: string) => v ? new Date(v).toISOString() : null);
 
+// ─── SQL identifier guard ─────────────────────────────────────────────────────
+// Dynamic UPDATE helpers interpolate column names from object keys. Values are
+// parameterised but names are not, so validate every interpolated name is a
+// plain SQL identifier — defence against SQL injection if a caller ever forwards
+// attacker-controlled keys.
+const SAFE_COLUMN = /^[a-z_][a-z0-9_]*$/;
+function col(name: string): string {
+  if (!SAFE_COLUMN.test(name)) {
+    throw new Error(`Unsafe column name in dynamic UPDATE: ${JSON.stringify(name)}`);
+  }
+  return name;
+}
+
 // ─── Pool ─────────────────────────────────────────────────────────────────────
 
 let _pool: Pool | null = null;
@@ -409,7 +422,7 @@ export const getPostsInRange = async (studioId: string, from: string, to: string
 export const updatePost = async (id: string, fields: Partial<PostRecord>): Promise<void> => {
   const entries = Object.entries(fields).filter(([k]) => !['id', 'studio_id', 'author_user_id', 'created_at'].includes(k));
   if (!entries.length) return;
-  const setClauses = entries.map(([k], i) => `${k}=$${i + 1}`).join(', ');
+  const setClauses = entries.map(([k], i) => `${col(k)}=$${i + 1}`).join(', ');
   const values = entries.map(([, v]) => v);
   await getPool().query(`UPDATE posts SET ${setClauses}, updated_at=NOW() WHERE id=$${values.length + 1}`, [...values, id]);
 };
@@ -434,7 +447,7 @@ export const getVariantsByPost = async (postId: string): Promise<PostVariantReco
 export const updateVariant = async (id: string, fields: Partial<PostVariantRecord>): Promise<void> => {
   const entries = Object.entries(fields).filter(([k]) => k !== 'id');
   if (!entries.length) return;
-  const setClauses = entries.map(([k], i) => `${k}=$${i + 1}`).join(', ');
+  const setClauses = entries.map(([k], i) => `${col(k)}=$${i + 1}`).join(', ');
   const values = entries.map(([, v]) => v);
   await getPool().query(`UPDATE post_variants SET ${setClauses} WHERE id=$${values.length + 1}`, [...values, id]);
 };
@@ -514,7 +527,7 @@ export const getInboxItems = async (studioId: string, filters: { platform?: stri
 export const updateInboxItem = async (id: string, fields: { status?: string; assigned_to?: string; internal_note?: string }): Promise<void> => {
   const entries = Object.entries(fields).filter(([, v]) => v !== undefined);
   if (!entries.length) return;
-  const setClauses = entries.map(([k], i) => `${k}=$${i + 1}`).join(', ');
+  const setClauses = entries.map(([k], i) => `${col(k)}=$${i + 1}`).join(', ');
   const values = entries.map(([, v]) => v);
   await getPool().query(`UPDATE inbox_items SET ${setClauses} WHERE id=$${values.length + 1}`, [...values, id]);
 };
@@ -939,7 +952,7 @@ export const createUser = async (u: Pick<UserRecord, 'email' | 'name' | 'role' |
 export const updateUser = async (id: string, fields: Partial<Pick<UserRecord, 'name' | 'google_sub' | 'role' | 'status' | 'last_login_at'>>): Promise<void> => {
   const entries = Object.entries(fields).filter(([, v]) => v !== undefined);
   if (!entries.length) return;
-  const setClauses = entries.map(([k], i) => `${k}=$${i + 1}`).join(', ');
+  const setClauses = entries.map(([k], i) => `${col(k)}=$${i + 1}`).join(', ');
   const values = entries.map(([, v]) => v);
   await getPool().query(`UPDATE users SET ${setClauses} WHERE id=$${values.length + 1}`, [...values, id]);
 };
