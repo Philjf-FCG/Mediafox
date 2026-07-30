@@ -123,7 +123,7 @@ export const parseOwnAuthToken = (req: Request): MediaFoxUser | null => {
   const token = req.cookies?.[AUTH_COOKIE];
   if (!token) return null;
   try {
-    return jwt.verify(token, getJwtSecret()) as MediaFoxUser;
+    return jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as MediaFoxUser;
   } catch { return null; }
 };
 
